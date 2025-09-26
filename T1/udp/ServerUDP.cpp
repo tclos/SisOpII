@@ -6,6 +6,8 @@ ServerUDP::ServerUDP(int port) : sockfd(-1), port(port) {}
 
 bool ServerUDP::createSocket() {
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    int broadcastEnable = 1;
+    setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable));
     if (sockfd < 0) {
         std::cerr << "Erro ao criar socket" << std::endl;
         return false;
@@ -61,8 +63,10 @@ void ServerUDP::run() {
     if (!createSocket()) return;
     setUpServerAddress();
     if (!bindSocket()) return;
-    receiveAndRespond();
-    closeSocket();
+
+    while (true) {
+        receiveAndRespond();
+    }
 }
 
 ServerUDP::~ServerUDP() {
