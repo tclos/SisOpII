@@ -1,0 +1,70 @@
+#include "ServerUDP.h"
+#include <iostream>
+#include <unistd.h>
+
+ServerUDP::ServerUDP(int port) : sockfd(-1), port(port) {}
+
+bool ServerUDP::createSocket() {
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) {
+        std::cerr << "Erro ao criar socket" << std::endl;
+        return false;
+    }
+    std::cerr << "Socket UDP criado com sucesso" << std::endl;
+    return true;
+}
+
+void ServerUDP::setUpServerAddress() {
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(port);
+}
+
+bool ServerUDP::bindSocket() {
+    if (bind(sockfd, (const struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        std::cerr << "Erro ao fazer bind do socket" << std::endl;
+        close(sockfd);
+        return false;
+    }
+    std::cerr << "Socket vinculado à porta " << ntohs(server_addr.sin_port) << std::endl;
+    return true;
+}
+
+void ServerUDP::receiveAndRespond() {
+    char buffer[1024];
+    int clientLen = sizeof(server_addr);
+    int n = recvfrom(sockfd, (char *)buffer, 1024, 0, (struct sockaddr *)&server_addr, (socklen_t *)&clientLen);
+
+    if (n < 0) {
+        std::cerr << "Erro ao receber dados" << std::endl;
+    } else {
+        buffer[n] = '\0';
+        std::cout << "Mensagem recebida: " << buffer << std::endl;
+
+        n = sendto(sockfd, (const char *)buffer, n, 0, (const struct sockaddr *)&server_addr, clientLen);
+        if (n < 0) {
+            std::cerr << "Erro ao enviar dados" << std::endl;
+        } else {
+            std::cout << "Mensagem enviada de volta ao cliente" << std::endl;
+        }
+    }
+}
+
+void ServerUDP::closeSocket() {
+    if (sockfd >= 0) {
+        close(sockfd);
+        std::cerr << "Socket fechado" << std::endl;
+    }
+}
+
+void ServerUDP::run() {
+    if (!createSocket()) return;
+    setUpServerAddress();
+    if (!bindSocket()) return;
+    receiveAndRespond();
+    closeSocket();
+}
+
+ServerUDP::~ServerUDP() {
+    closeSocket();
+}
