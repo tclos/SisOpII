@@ -10,6 +10,7 @@ class Client {
         float balance;
     
     public:
+        Client(std::string addr);
         Client(std::string addr, int last_req, float bal);
 
         std::string getAddress() const;
@@ -18,6 +19,7 @@ class Client {
 
         void setLastRequest(int last_req);
         void setBalance(float bal);
+        void init();
 };
 
 #endif // CLIENT_H

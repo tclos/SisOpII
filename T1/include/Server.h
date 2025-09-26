@@ -12,8 +12,6 @@ class Server {
         int total_transferred;
         int total_balance;
         std::vector<Client> clients;
-
-        std::string getCurrentFormattedTime();
     
     public:
         Server(int port);
