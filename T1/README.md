@@ -3,7 +3,7 @@
 How to compile
 
 ```
-g++ -Iinclude -o servidor server/main.cpp server/Server.cpp server/serverInterface.cpp utils.cpp udp/ServerUDP.cpp
+g++ -Iinclude -o servidor server/main.cpp server/Server.cpp server/serverInterface.cpp client/Client.cpp utils.cpp
 ```
 
 How to init
