@@ -2,9 +2,10 @@
 #include <iostream>
 #include <unistd.h>
 #include <cstring>
+#include <arpa/inet.h>
 
-ClientUDP::ClientUDP(const std::string& host, int port)
-    : host(host), port(port), sockfd(-1), server(nullptr) {}
+ClientUDP::ClientUDP(int port)
+    : port(port), sockfd(-1), server(nullptr) {}
 
 struct hostent* ClientUDP::getServerByHost(const std::string& host) {
     struct hostent* server = gethostbyname(host.c_str());
@@ -15,10 +16,6 @@ struct hostent* ClientUDP::getServerByHost(const std::string& host) {
 }
 
 bool ClientUDP::setup() {
-    server = getServerByHost(host);
-    if (server == NULL) {
-        return false;
-    }
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
         std::cerr << "Erro ao abrir socket" << std::endl;
@@ -29,6 +26,35 @@ bool ClientUDP::setup() {
     std::memcpy(&server_addr.sin_addr.s_addr, server->h_addr, server->h_length);
     std::memset(server_addr.sin_zero, 0, sizeof(server_addr.sin_zero));
     return true;
+}
+
+bool ClientUDP::setupBroadcast() {
+    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        std::cerr << "Erro ao criar o socket do cliente." << std::endl;
+        return false;
+    }
+
+    int broadcast_enable = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &broadcast_enable, sizeof(broadcast_enable)) < 0) {
+        close(sockfd);
+        std::cerr << "Erro ao configurar a opção de broadcast." << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+bool ClientUDP::sendPacket(const Packet& packet, const struct sockaddr_in& dest_addr) {
+    if (sendto(sockfd, &packet, sizeof(packet), 0, (const struct sockaddr *)&dest_addr, sizeof(dest_addr)) < 0) {
+        return false;
+    }
+    return true;
+}
+
+int ClientUDP::receivePacket(Packet& packet, struct sockaddr_in& sender_addr) {
+    socklen_t len = sizeof(sender_addr);
+    int n = recvfrom(sockfd, &packet, sizeof(packet), 0, (struct sockaddr *)&sender_addr, &len);
+    return n;
 }
 
 bool ClientUDP::sendMessage(const std::string& message) {

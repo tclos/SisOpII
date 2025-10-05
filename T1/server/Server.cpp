@@ -15,5 +15,4 @@ float Server::getTotalBalance() const { return total_balance; }
 void Server::init(int port) {
     ServerUDP serverUdp(port);
     logInitialMessage(num_transactions, static_cast<int>(total_transferred), static_cast<int>(total_balance));
-    serverUdp.run();
 }

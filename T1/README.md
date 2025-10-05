@@ -1,27 +1,19 @@
-## Server
+## Como testar
 
-How to compile
-
-```
-g++ -Iinclude -o servidor server/main.cpp server/Server.cpp server/serverInterface.cpp utils.cpp udp/ServerUDP.cpp
-```
-
-How to init
+Buildar o container
 
 ```
-./servidor 4000
+docker build --platform linux/amd64 -t discovery-app .
 ```
 
-## Client
-
-How to compile
+### Inicializar servidor
 
 ```
-g++ -Iinclude -o cliente client/main.cpp client/Client.cpp client/clientInterface.cpp utils.cpp
+docker run --rm --network host --platform linux/amd64 discovery-app ./servidor 4000
 ```
 
-How to init
+### Inicializar cliente
 
 ```
-./cliente 4000
+docker run --rm --network host --platform linux/amd64 discovery-app ./cliente 4000
 ```

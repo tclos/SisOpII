@@ -4,13 +4,9 @@
 #include <string>
 #include <cstdint>
 
-// Estrutura para a mensagem de descoberta, conforme sugestão do trabalho.
-// Para este subserviço, apenas o tipo da mensagem é essencial.
-// Tipos de pacote: 0 para DESCOBERTA
 enum PacketType {
     DISCOVERY = 0,
     DISCOVERY_ACK = 1
-    // Outros tipos podem ser adicionados para as próximas etapas
 };
 
 struct Packet {

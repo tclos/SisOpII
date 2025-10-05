@@ -1,0 +1,8 @@
+.git/
+
+obj/
+servidor
+cliente
+
+Dockerfile
+.dockerignore
