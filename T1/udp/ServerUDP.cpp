@@ -13,7 +13,6 @@ bool ServerUDP::createSocket() {
         std::cerr << "Erro ao criar socket" << std::endl;
         return false;
     }
-    std::cerr << "Socket UDP criado com sucesso" << std::endl;
     return true;
 }
 
@@ -22,8 +21,6 @@ void ServerUDP::configureBroadcast() {
     if (setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable)) < 0) {
         std::cerr << "Erro ao configurar opção de broadcast" << std::endl;
         close(sockfd);
-    } else {
-        std::cerr << "Opção de broadcast configurada com sucesso" << std::endl;
     }
 }
 
@@ -40,7 +37,6 @@ bool ServerUDP::bindSocket() {
         close(sockfd);
         return false;
     }
-    std::cerr << "Socket vinculado à porta " << ntohs(server_addr.sin_port) << std::endl;
     return true;
 }
 
@@ -84,7 +80,6 @@ void ServerUDP::receiveAndRespond() {
 void ServerUDP::closeSocket() {
     if (sockfd >= 0) {
         close(sockfd);
-        std::cerr << "Socket fechado" << std::endl;
     }
 }
 

@@ -28,7 +28,6 @@ std::string run_discovery_service_client(int server_port) {
 
     discovery_packet.type = htons(DISCOVERY);
 
-    std::cout << "Enviando mensagem de DESCOBERTA em broadcast..." << std::endl;
     if (!client.sendPacket(discovery_packet, broadcast_addr)) {
         throw std::runtime_error("Erro ao enviar a mensagem de descoberta.");
         client.closeSocket();

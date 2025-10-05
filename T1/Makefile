@@ -13,7 +13,9 @@ SERVER_OBJS = \
     $(OBJDIR)/server/serverInterface.o \
     $(OBJDIR)/udp-discovery/discoveryServer.o \
     $(OBJDIR)/udp/ServerUDP.o \
-    $(OBJDIR)/utils.o
+    $(OBJDIR)/utils.o \
+    $(OBJDIR)/client/Client.o \
+    $(OBJDIR)/client/clientInterface.o
 
 CLIENT_OBJS = \
     $(OBJDIR)/client/main.o \
