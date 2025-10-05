@@ -1,27 +1,32 @@
-## Server
+## Como testar
 
-How to compile
-
-```
-g++ -Iinclude -o servidor server/main.cpp server/Server.cpp server/serverInterface.cpp utils.cpp udp/ServerUDP.cpp
-```
-
-How to init
+Buildar o container
 
 ```
-./servidor 4000
+docker build --platform linux/amd64 -t discovery-app .
 ```
 
-## Client
-
-How to compile
+Criar uma sub-rede no container
 
 ```
-g++ -Iinclude -o cliente client/main.cpp client/Client.cpp client/clientInterface.cpp utils.cpp
+docker network create --subnet=172.18.0.0/16 discovery-net
 ```
 
-How to init
+
+### Inicializar servidor
 
 ```
-./cliente 4000
+docker run --rm --network discovery-net --name servidor-app discovery-app ./servidor 4000
+```
+
+### Inicializar cliente
+
+```
+docker run --rm --network discovery-net --ip 172.18.0.21 discovery-app ./cliente 4000
+```
+
+É possível testar com IPs diferentes:
+
+```
+docker run --rm --network discovery-net --ip 172.18.0.22 discovery-app ./cliente 4000
 ```

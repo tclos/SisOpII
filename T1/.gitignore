@@ -1,0 +1,6 @@
+/obj/
+/servidor
+/cliente
+*.o
+.vscode/
+.DS_Store
