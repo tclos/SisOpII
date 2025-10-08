@@ -74,22 +74,8 @@ void Server::printClients_unlocked() const {
 
 
 void Server::printClients() const {
-    std::unique_lock<std::mutex> lock(lock_reader);
-
-    condition_reader.wait(lock, [this] { return !writer_active; });
-
-    active_readers++;
-
-    lock.unlock();
-
+    std::lock_guard<std::mutex> lock(lock_reader);
     printClients_unlocked();
-
-    lock.lock();
-    active_readers--;
-
-    if (active_readers == 0) {
-        condition_reader.notify_all();
-    }
 }
 
 bool Server::wasClientAdded(const std::string& client_ip) {
@@ -118,12 +104,7 @@ void Server::addClient(const std::string& client_ip) {
     bool client_added = false;
     {
         std::unique_lock<std::mutex> lock(lock_reader);
-        condition_reader.wait(lock, [this] { return active_readers == 0 && !writer_active; });
-        writer_active = true;
-
         client_added = wasClientAdded(client_ip);
-
-        writer_active = false;
     }
     condition_reader.notify_all();
 
@@ -139,8 +120,13 @@ TransactionStatus Server::validateTransaction(std::vector<ClientDTO>::iterator& 
         std::cerr << "Erro: Cliente de origem ou destino não encontrado." << std::endl;
         return TransactionStatus::ERROR_CLIENT_NOT_FOUND;
     }
-    if (source_it->getLastRequest() >= seqn) {
+    if (seqn <= source_it->getLastRequest()) {
         std::cout << "Requisição duplicada #" << seqn << " de " << source_it->getAddress() << std::endl;
+        return TransactionStatus::ERROR_DUPLICATE_REQUEST;
+    }
+    if (seqn > source_it->getLastRequest() + 1) {
+        std::cout << "Requisição fora de ordem #" << seqn << " de " << source_it->getAddress() 
+                  << ". Esperado: " << source_it->getLastRequest() + 1 << std::endl;
         return TransactionStatus::ERROR_DUPLICATE_REQUEST;
     }
     if (source_it->getBalance() < value) {
@@ -178,23 +164,28 @@ std::pair<TransactionStatus, float> Server::processTransaction(const std::string
 
     {
         std::unique_lock<std::mutex> lock(lock_reader);
-        condition_reader.wait(lock, [this] { return !writer_active; });
-        writer_active = true;
 
         std::vector<ClientDTO>::iterator source_it = findClient(source_ip);
         std::vector<ClientDTO>::iterator dest_it = findClient(dest_ip);
 
         TransactionStatus status = validateTransaction(source_it, dest_it, value, seqn);
-        if (status != TransactionStatus::SUCCESS) {
-            result = {status ,(source_it == clients.end()) ? -1.0f : source_it->getBalance()};
-        } else {
+
+        if (status == TransactionStatus::SUCCESS) {
             executeTransaction(source_it, dest_it, value, seqn);
             updateAndLogTransaction(source_ip, dest_ip, value, seqn);
+            last_log_info.type = LogType::SUCCESS;
             result = {TransactionStatus::SUCCESS, source_it->getBalance()};
             transaction_processed = true;
+        } else if (status == TransactionStatus::ERROR_DUPLICATE_REQUEST) {
+            last_log_info.type = LogType::DUPLICATE;
+            last_log_info.transaction_id = seqn;
+            last_log_info.value = value;
+            last_log_info.source_ip = source_ip;
+            last_log_info.dest_ip = inet_ntoa({dest_addr_int});
+            transaction_processed = true;
+        } else {
+            result = {status, (source_it == clients.end()) ? -1.0f : source_it->getBalance()};
         }
-
-        writer_active = false;
     }
 
     condition_reader.notify_all();
@@ -214,29 +205,37 @@ void Server::interfaceThread() {
         
         condition_reader.wait(lock, [this] { return data_changed; });
 
-        active_readers++;
         lock.unlock();
 
-        if (!transaction_history.empty()) {
-            const auto& last_tx = transaction_history.back();
-            
-            logRequisitionMessage(
-                last_tx.source_ip, 
-                last_tx.client_seqn, 
-                last_tx.dest_ip, 
-                last_tx.value,
-                num_transactions,
-                total_transferred,
+        if (last_log_info.type == LogType::SUCCESS) {
+            if (!transaction_history.empty()) {
+                const auto& last_transaction = transaction_history.back();
+                logRequisitionMessage(
+                    last_transaction.source_ip, 
+                    last_transaction.client_seqn, 
+                    last_transaction.dest_ip, 
+                    last_transaction.value,
+                    num_transactions, 
+                    total_transferred, 
+                    total_balance
+                );
+            }
+        } else if (last_log_info.type == LogType::DUPLICATE) {
+            std::string log_msg = getDuplicatedMessage(
+                last_log_info.source_ip, 
+                last_log_info.transaction_id, 
+                last_log_info.dest_ip, 
+                last_log_info.value,
+                num_transactions, 
+                total_transferred, 
                 total_balance
             );
+            std::cout << log_msg << std::endl;
         }
+
         data_changed = false;
+        last_log_info.type = LogType::NONE;
         
         lock.lock();
-        active_readers--;
-        
-        if (active_readers == 0) {
-            condition_reader.notify_all();
-        }
     }
 }

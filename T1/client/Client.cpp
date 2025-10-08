@@ -47,11 +47,7 @@ void Client::userInputThread() {
     }
 
     // (CTRL+D) sinaliza para a outra thread encerrar
-    {
-        std::lock_guard<std::mutex> lock(queue_mutex);
-        finished = true;
-    }
-    condition.notify_one();
+    shutdown();
 }
 
 bool Client::tryGetCommandFromQueue(std::string& out_command) {
@@ -132,4 +128,12 @@ void Client::init() {
     communication_thread.join();
 
     client_socket.closeSocket();
+}
+
+void Client::shutdown() {
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex);
+        finished = true;
+    }
+    condition.notify_one();
 }

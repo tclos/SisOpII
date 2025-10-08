@@ -40,6 +40,7 @@ class Client {
         void setLastRequest(int last_req);
         void setBalance(float bal);
         void init();
+        void shutdown();
 };
 
 #endif // CLIENT_H

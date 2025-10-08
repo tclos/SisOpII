@@ -8,6 +8,20 @@
 #include "ClientDTO.h"
 #include "ServerUDP.h"
 
+enum class LogType {
+    NONE,
+    SUCCESS,
+    DUPLICATE
+};
+
+struct LogInfo {
+    LogType type = LogType::NONE;
+    int transaction_id = 0;
+    int value = 0;
+    std::string source_ip;
+    std::string dest_ip;
+};
+
 enum class TransactionStatus {
     SUCCESS,
     ERROR_CLIENT_NOT_FOUND,
@@ -33,10 +47,10 @@ class Server {
         std::vector<ClientDTO> clients;
         std::vector<Transaction> transaction_history;
 
+        LogInfo last_log_info;
+
         mutable std::mutex lock_reader;
         mutable std::condition_variable condition_reader;
-        mutable int active_readers = 0;
-        bool writer_active = false;
         bool data_changed = false;
 
         void interfaceThread();
