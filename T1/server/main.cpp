@@ -10,12 +10,5 @@ int main(int argc, char* argv[]) {
     Server server(port);
     server.init(port);
 
-    try {
-        run_discovery_service_server(port, server);
-    } catch (const std::runtime_error& e) {
-        std::cerr << "Erro: " << e.what() << std::endl;
-        return 1;
-    }
-
     return 0;
 }

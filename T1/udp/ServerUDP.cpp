@@ -57,39 +57,9 @@ bool ServerUDP::sendPacket(const Packet& packet, const struct sockaddr_in& dest_
     return true;
 }
 
-void ServerUDP::receiveAndRespond() {
-    char buffer[1024];
-    int clientLen = sizeof(server_addr);
-    int n = recvfrom(sockfd, (char *)buffer, 1024, 0, (struct sockaddr *)&server_addr, (socklen_t *)&clientLen);
-
-    if (n < 0) {
-        std::cerr << "Erro ao receber dados" << std::endl;
-    } else {
-        buffer[n] = '\0';
-        std::cout << "Mensagem recebida: " << buffer << std::endl;
-
-        n = sendto(sockfd, (const char *)buffer, n, 0, (const struct sockaddr *)&server_addr, clientLen);
-        if (n < 0) {
-            std::cerr << "Erro ao enviar dados" << std::endl;
-        } else {
-            std::cout << "Mensagem enviada de volta ao cliente" << std::endl;
-        }
-    }
-}
-
 void ServerUDP::closeSocket() {
     if (sockfd >= 0) {
         close(sockfd);
-    }
-}
-
-void ServerUDP::run() {
-    if (!createSocket()) return;
-    setUpServerAddress();
-    if (!bindSocket()) return;
-
-    while (true) {
-        receiveAndRespond();
     }
 }
 

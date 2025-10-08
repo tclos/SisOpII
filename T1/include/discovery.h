@@ -4,17 +4,10 @@
 #include <string>
 #include <cstdint>
 #include "Server.h"
+#include "ServerUDP.h"
+#include "utils.h"
 
-enum PacketType {
-    DISCOVERY = 0,
-    DISCOVERY_ACK = 1
-};
-
-struct Packet {
-    uint16_t type; // Tipo do pacote (e.g., DESCOBERTA)
-};
-
-void run_discovery_service_server(int server_port, Server& server_data);
+void handleDiscoveryPacket(ServerUDP& server_socket, Server& server_data, struct sockaddr_in& client_addr);
 
 std::string run_discovery_service_client(int server_port);
 
