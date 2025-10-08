@@ -7,9 +7,16 @@
 ClientUDP::ClientUDP(int port)
     : port(port), sockfd(-1), server(nullptr) {}
 
-bool ClientUDP::setupBroadcast() {
+bool ClientUDP::createSocket() {
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         std::cerr << "Erro ao criar o socket do cliente." << std::endl;
+        return false;
+    }
+    return true;
+}
+
+bool ClientUDP::setupBroadcast() {
+    if (createSocket() == false) {
         return false;
     }
 
@@ -21,6 +28,15 @@ bool ClientUDP::setupBroadcast() {
     }
 
     return true;
+}
+
+void ClientUDP::setReceiveTimeout(int seconds, int microseconds) {
+    struct timeval timeout;
+    timeout.tv_sec = seconds;
+    timeout.tv_usec = microseconds;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+        std::cerr << "Erro ao configurar o timeout de recebimento." << std::endl;
+    }
 }
 
 bool ClientUDP::sendPacket(const Packet& packet, const struct sockaddr_in& dest_addr) {
