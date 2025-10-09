@@ -41,13 +41,15 @@ std::pair<bool, AckData> Client::executeRequestWithRetries(const std::string& de
 
         Packet response_packet;
         if (receiveResponse(response_packet, sequence_number, client_socket)) {
-            sequence_number++;
             return {true, response_packet.data.ack};
         } else {
             retries++;
         }
     }
     
-    sequence_number++; 
     return {false, {}};
+}
+
+void Client::incrementSequenceNumber() {
+    this->sequence_number++;
 }

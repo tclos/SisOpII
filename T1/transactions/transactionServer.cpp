@@ -1,5 +1,4 @@
 #include "transactions.h"
-#include "serverInterface.h"
 #include <thread>
 #include <arpa/inet.h>
 
@@ -21,11 +20,8 @@ void handleTransactionRequest(const Packet& request_packet, const struct sockadd
         response_packet.type = htons(TRANSACTION_ACK);
         response_packet.data.ack.seqn = htonl(seqn);
 
-        if (status == TransactionStatus::ERROR_CLIENT_NOT_FOUND) {
-            response_packet.data.ack.new_balance = -1.0f; 
-        } else {
-            response_packet.data.ack.new_balance = balance;
-        }
+        response_packet.data.ack.status = htonl(static_cast<uint32_t>(status));
+        response_packet.data.ack.new_balance = balance;
         
         server_socket.sendPacket(response_packet, client_addr);
 

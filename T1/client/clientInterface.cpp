@@ -71,7 +71,29 @@ void ClientInterface::processCommand(const std::string& command) {
     auto result = client.executeRequestWithRetries(dest_ip, value);
 
     if (result.first) {
-        logResponse(client.getSequenceNumber() - 1, dest_ip, value, result.second); // 'second' é a struct AckData
+        AckData ack_data = result.second;
+        TransactionStatus status = static_cast<TransactionStatus>(ntohl(ack_data.status));
+
+        switch (status) {
+            case TransactionStatus::SUCCESS:
+                logResponse(client.getSequenceNumber() - 1, dest_ip, value, ack_data);
+                client.incrementSequenceNumber();
+                break;
+            case TransactionStatus::ERROR_INSUFFICIENT_FUNDS:
+                logError("Saldo insuficiente para realizar a transação.");
+                break;
+            case TransactionStatus::ERROR_CLIENT_NOT_FOUND:
+                logError("Cliente de origem ou destino não encontrado.");
+                break;
+            case TransactionStatus::ERROR_DUPLICATE_REQUEST:
+                logError("Requisição duplicada ou fora de ordem detectada pelo servidor.");
+                logResponse(client.getSequenceNumber() - 1, dest_ip, value, ack_data);
+                client.incrementSequenceNumber();
+                break;
+            default:
+                logError("Recebida resposta com status desconhecido do servidor.");
+                break;
+        }
     } else {
         logError("Não foi possível obter resposta do servidor para a requisição #" + std::to_string(client.getSequenceNumber() - 1));
     }

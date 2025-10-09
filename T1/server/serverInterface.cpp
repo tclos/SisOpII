@@ -69,7 +69,7 @@ void ServerInterface::logRequisitionMessage(const Transaction& transaction) {
 void ServerInterface::logDuplicatedMessage(const LogInfo& log_info) {
     std::cout  << getCurrentFormattedTime() 
         << " client " << log_info.source_ip
-        << " DUP!! "
+        << " DUP!!"
         << " id req " << log_info.transaction_id
         << " dest " << log_info.dest_ip
         << " value " << log_info.value

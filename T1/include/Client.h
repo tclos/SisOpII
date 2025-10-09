@@ -22,6 +22,8 @@ public:
 
     int getSequenceNumber() const;
     std::string getServerAddress() const;
+
+    void incrementSequenceNumber();
 };
 
 #endif // CLIENT_H

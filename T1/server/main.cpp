@@ -1,7 +1,6 @@
 #include <iostream>
 #include "Server.h"
 #include "utils.h"
-#include "discovery.h"
 
 int main(int argc, char* argv[]) {
     int port = getValidatedPort(argc, argv);

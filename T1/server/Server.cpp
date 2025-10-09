@@ -117,17 +117,10 @@ TransactionStatus Server::validateTransaction(std::vector<ClientDTO>::iterator& 
         std::cerr << "Erro: Cliente de origem ou destino não encontrado." << std::endl;
         return TransactionStatus::ERROR_CLIENT_NOT_FOUND;
     }
-    if (seqn <= source_it->getLastRequest()) {
-        std::cout << "Requisição duplicada #" << seqn << " de " << source_it->getAddress() << std::endl;
-        return TransactionStatus::ERROR_DUPLICATE_REQUEST;
-    }
-    if (seqn > source_it->getLastRequest() + 1) {
-        std::cout << "Requisição fora de ordem #" << seqn << " de " << source_it->getAddress() 
-                  << ". Esperado: " << source_it->getLastRequest() + 1 << std::endl;
+    if (seqn <= source_it->getLastRequest() || seqn > source_it->getLastRequest() + 1) {
         return TransactionStatus::ERROR_DUPLICATE_REQUEST;
     }
     if (source_it->getBalance() < value) {
-        std::cout << "Saldo insuficiente para o cliente " << source_it->getAddress() << std::endl;
         return TransactionStatus::ERROR_INSUFFICIENT_FUNDS;
     }
     return TransactionStatus::SUCCESS;

@@ -50,6 +50,7 @@ struct ReqData {
 struct AckData {
     uint32_t seqn;
     float new_balance;
+    uint32_t status;
 };
 
 struct Packet {

@@ -5,7 +5,6 @@
 #include <cstdint>
 #include "Server.h"
 #include "ServerUDP.h"
-#include "utils.h"
 
 void handleDiscoveryPacket(ServerUDP& server_socket, Server& server_data, struct sockaddr_in& client_addr);
 

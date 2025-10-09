@@ -1,13 +1,6 @@
 #include "discovery.h"
 #include "ServerUDP.h"
-#include <iostream>
-#include <string>
-#include <cstring>
-#include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
-#include <unistd.h>
-#include <stdexcept>
 
 void handleDiscoveryPacket(ServerUDP& server_socket, Server& server_data, struct sockaddr_in& client_addr) {
     char client_ip[INET_ADDRSTRLEN];
