@@ -1,7 +1,5 @@
 
 #include "Server.h"
-#include "serverInterface.h"
-#include "ServerUDP.h"
 #include "discovery.h"
 #include "transactions.h"
 #include <iostream>
@@ -13,37 +11,47 @@
 #define INITIAL_BALANCE 1000.0f
 
 Server::Server(int port)
-    : udp_port(port), num_transactions(0), total_transferred(0), total_balance(0) {}
+    : udp_port(port), 
+    num_transactions(0), 
+    total_transferred(0), 
+    total_balance(0), 
+    transaction_history(), 
+    clients(), 
+    server_socket(port), 
+    interface(*this) {}
+
+int Server::getNumTransactions() const {return num_transactions; }
+int Server::getTotalTransferred() const {return total_transferred; }
+int Server::getTotalBalance() const {return total_balance; }
+LogInfo Server::getLastLogInfo() const {return last_log_info; }
+Transaction Server::getLastTransaction() const {return transaction_history.back(); }
 
 void Server::init(int port) {
     struct sockaddr_in client_addr;
     Packet received_packet;
 
-    ServerUDP serverUDP(port);
-    logInitialMessage(num_transactions, static_cast<int>(total_transferred), static_cast<int>(total_balance));
-
-    if (serverUDP.createSocket() == false) {
+    if (server_socket.createSocket() == false) {
         throw std::runtime_error("Erro ao criar o socket do servidor.");
     }
 
-    serverUDP.configureBroadcast();
-    serverUDP.setUpServerAddress();
-    serverUDP.bindSocket();
+    server_socket.configureBroadcast();
+    server_socket.setUpServerAddress();
+    server_socket.bindSocket();
+
+    interface.start();
 
     while (true) {
-        int n = serverUDP.receivePacket(received_packet, client_addr);
+        int n = server_socket.receivePacket(received_packet, client_addr);
         if (n <= 0) continue;
-
-        std::cout << "packet type: " << ntohs(received_packet.type) << std::endl;
 
         switch (ntohs(received_packet.type)) {
             case TRANSACTION_REQ: {
                 Packet req_copy = received_packet;
-                handleTransactionRequest(req_copy, client_addr, *this, serverUDP);
+                handleTransactionRequest(req_copy, client_addr, *this, server_socket);
                 break;
             }
             case DISCOVERY: {
-                handleDiscoveryPacket(serverUDP, *this, client_addr);
+                handleDiscoveryPacket(server_socket, *this, client_addr);
                 break;
             }
             default:
@@ -52,12 +60,10 @@ void Server::init(int port) {
         }
     }
 
-    printClients();
-
-    serverUDP.closeSocket();
+    server_socket.closeSocket();
 }
 
-void Server::printClients_unlocked() const {
+void Server::printClients() const {
     std::cout << std::left << std::setw(20) << "Endereço IP"
               << std::setw(25) << "Último ID recebido"
               << std::setw(15) << "Saldo Atual" << std::endl;
@@ -72,26 +78,20 @@ void Server::printClients_unlocked() const {
 }
 
 
-void Server::printClients() const {
-    std::lock_guard<std::mutex> lock(clients_mutex);
-    printClients_unlocked();
-}
-
-void Server::addClient_unlocked(const std::string& client_ip) {
+bool Server::wasClientAdded(const std::string& client_ip) {
     std::vector<ClientDTO>::iterator it = std::find_if(clients.begin(), clients.end(), [&](const ClientDTO& c) {
         return c.getAddress() == client_ip;
     });
 
     if (it == clients.end()) {
-            ClientDTO newClient(client_ip);
-            clients.push_back(newClient);
-            
-            this->total_balance += newClient.getBalance();
-    } else {
-        std::cout << "Cliente " << client_ip << " já está registado." << std::endl;
+        ClientDTO newClient(client_ip);
+        clients.push_back(newClient);
+        
+        this->total_balance += newClient.getBalance();
+        return true;
     }
-    
-    printClients_unlocked();
+    std::cout << "Cliente " << client_ip << " já está registado." << std::endl;
+    return false;
 }
 
 std::vector<ClientDTO>::iterator Server::findClient(const std::string& ip) {
@@ -101,8 +101,15 @@ std::vector<ClientDTO>::iterator Server::findClient(const std::string& ip) {
 }
 
 void Server::addClient(const std::string& client_ip) {
-    std::lock_guard<std::mutex> lock(clients_mutex);
-    addClient_unlocked(client_ip);
+    bool client_added = false;
+    {
+        std::lock_guard<std::mutex> lock(data_mutex);
+        client_added = wasClientAdded(client_ip);
+    }
+
+    if (client_added) {
+        interface.notify();
+    }
 }
 
 TransactionStatus Server::validateTransaction(std::vector<ClientDTO>::iterator& source_it, std::vector<ClientDTO>::iterator& dest_it, int value, int seqn) {
@@ -110,8 +117,13 @@ TransactionStatus Server::validateTransaction(std::vector<ClientDTO>::iterator& 
         std::cerr << "Erro: Cliente de origem ou destino não encontrado." << std::endl;
         return TransactionStatus::ERROR_CLIENT_NOT_FOUND;
     }
-    if (source_it->getLastRequest() >= seqn) {
+    if (seqn <= source_it->getLastRequest()) {
         std::cout << "Requisição duplicada #" << seqn << " de " << source_it->getAddress() << std::endl;
+        return TransactionStatus::ERROR_DUPLICATE_REQUEST;
+    }
+    if (seqn > source_it->getLastRequest() + 1) {
+        std::cout << "Requisição fora de ordem #" << seqn << " de " << source_it->getAddress() 
+                  << ". Esperado: " << source_it->getLastRequest() + 1 << std::endl;
         return TransactionStatus::ERROR_DUPLICATE_REQUEST;
     }
     if (source_it->getBalance() < value) {
@@ -131,29 +143,57 @@ void Server::updateAndLogTransaction(const std::string& source_ip, const std::st
     this->num_transactions++;
     this->total_transferred += value;
 
-    std::cout << "Transação #" << seqn << ": " << source_ip << " -> " << dest_ip << " [Valor: " << value << "]" << std::endl;
+    Transaction new_transaction;
+    new_transaction.id = this->num_transactions;
+    new_transaction.source_ip = source_ip;
+    new_transaction.dest_ip = dest_ip;
+    new_transaction.value = value;
+    new_transaction.client_seqn = seqn;
+    this->transaction_history.push_back(new_transaction);
 }
 
-float Server::processTransaction(const std::string& source_ip, uint32_t dest_addr_int, int value, int seqn) {
-    std::lock_guard<std::mutex> lock(clients_mutex);
-
+std::pair<TransactionStatus, float> Server::processTransaction(const std::string& source_ip, uint32_t dest_addr_int, int value, int seqn) {
     struct in_addr dest_ip_struct;
     dest_ip_struct.s_addr = dest_addr_int;
     std::string dest_ip = inet_ntoa(dest_ip_struct);
 
-    std::vector<ClientDTO>::iterator source_it = findClient(source_ip);
-    std::vector<ClientDTO>::iterator dest_it = findClient(dest_ip);
+    std::pair<TransactionStatus, float> result;
+    bool notify_transaction = false;
 
-    TransactionStatus status = validateTransaction(source_it, dest_it, value, seqn);
-    if (status != TransactionStatus::SUCCESS) {
-        return (source_it != clients.end()) ? source_it->getBalance() : -1.0f;
+    {
+        std::lock_guard<std::mutex> lock(data_mutex);
+
+        std::vector<ClientDTO>::iterator source_it = findClient(source_ip);
+        std::vector<ClientDTO>::iterator dest_it = findClient(dest_ip);
+
+        TransactionStatus status = validateTransaction(source_it, dest_it, value, seqn);
+
+        if (status == TransactionStatus::SUCCESS) {
+
+            executeTransaction(source_it, dest_it, value, seqn);
+            updateAndLogTransaction(source_ip, dest_ip, value, seqn);
+
+            last_log_info.type = LogType::SUCCESS;
+            result = {TransactionStatus::SUCCESS, source_it->getBalance()};
+            notify_transaction = true;
+
+        } else if (status == TransactionStatus::ERROR_DUPLICATE_REQUEST) {
+
+            last_log_info.type = LogType::DUPLICATE;
+            last_log_info.transaction_id = seqn;
+            last_log_info.value = value;
+            last_log_info.source_ip = source_ip;
+            last_log_info.dest_ip = inet_ntoa({dest_addr_int});
+            notify_transaction = true;
+
+        } else {
+            result = {status, (source_it == clients.end()) ? -1.0f : source_it->getBalance()};
+        }
     }
 
-    executeTransaction(source_it, dest_it, value, seqn);
+    if (notify_transaction) {
+        interface.notify();
+    }
 
-    updateAndLogTransaction(source_ip, dest_ip, value, seqn);
-
-    printClients_unlocked();
-
-    return source_it->getBalance();
+    return result;
 }

@@ -4,14 +4,11 @@
 #include <vector>
 #include <string>
 #include <mutex>
+#include <condition_variable>
 #include "ClientDTO.h"
-
-enum class TransactionStatus {
-    SUCCESS,
-    ERROR_CLIENT_NOT_FOUND,
-    ERROR_DUPLICATE_REQUEST,
-    ERROR_INSUFFICIENT_FUNDS
-};
+#include "ServerUDP.h"
+#include "serverInterface.h"
+#include "utils.h"
 
 class Server {
     private:
@@ -19,10 +16,16 @@ class Server {
         int num_transactions;
         int total_transferred;
         int total_balance;
+        ServerUDP server_socket;
         std::vector<ClientDTO> clients;
-        mutable std::mutex clients_mutex;
-        void addClient_unlocked(const std::string& client_ip);
-        void printClients_unlocked() const;
+        std::vector<Transaction> transaction_history;
+        ServerInterface interface;
+
+        mutable std::mutex data_mutex;
+
+        LogInfo last_log_info;
+        
+        bool wasClientAdded(const std::string& client_ip);
         std::vector<ClientDTO>::iterator findClient(const std::string& ip);
         TransactionStatus validateTransaction(std::vector<ClientDTO>::iterator& source_it, std::vector<ClientDTO>::iterator& dest_it, int value, int seqn);
         void executeTransaction(std::vector<ClientDTO>::iterator& source_it, std::vector<ClientDTO>::iterator& dest_it, int value, int seqn);
@@ -31,9 +34,15 @@ class Server {
     public:
         Server(int port);
 
+        int getNumTransactions() const;
+        int getTotalTransferred() const;
+        int getTotalBalance() const;
+        LogInfo getLastLogInfo() const;
+        Transaction getLastTransaction() const;
+
         void addClient(const std::string& client_ip);
         void printClients() const;
-        float processTransaction(const std::string& source_ip, uint32_t dest_addr, int value, int seqn);
+        std::pair<TransactionStatus, float> processTransaction(const std::string& source_ip, uint32_t dest_addr, int value, int seqn);
         void init(int port);
 };
 

@@ -2,30 +2,26 @@
 #define CLIENT_H
 
 #include <string>
+#include <utility>
 #include "ClientUDP.h"
+#include "utils.h"
 
 class Client {
-    private:
-        std::string server_address;
-        std::string address;
-        int last_req;
-        float balance;
-        int port;
-        int sequence_number;
-        struct sockaddr_in server_sock_addr;
-        ClientUDP client_socket;
+private:
+    int port;
+    int sequence_number;
+    std::string server_address;
+    struct sockaddr_in server_sock_addr;
+    ClientUDP client_socket;
+
+public:
+    Client(int port);
     
-    public:
-        Client(int port);
-        Client(std::string addr, int port);
+    std::string discoverServer();
+    std::pair<bool, AckData> executeRequestWithRetries(const std::string& dest_ip, int value);
 
-        std::string getAddress() const;
-        int getLastRequest() const;
-        float getBalance() const;
-
-        void setLastRequest(int last_req);
-        void setBalance(float bal);
-        void init();
+    int getSequenceNumber() const;
+    std::string getServerAddress() const;
 };
 
 #endif // CLIENT_H

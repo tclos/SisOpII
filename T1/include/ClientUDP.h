@@ -15,7 +15,9 @@ class ClientUDP {
 
     public:
         ClientUDP(int port);
+        bool createSocket();
         bool setupBroadcast();
+        void setReceiveTimeout(int seconds, int microseconds);
         bool sendMessage(const std::string& message);
         bool sendPacket(const Packet& packet, const struct sockaddr_in& dest_addr);
         int receivePacket(Packet& packet, struct sockaddr_in& sender_addr);

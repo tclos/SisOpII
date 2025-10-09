@@ -57,6 +57,14 @@ bool ServerUDP::sendPacket(const Packet& packet, const struct sockaddr_in& dest_
     return true;
 }
 
+bool ServerUDP::sendMessage(const std::string& message, const struct sockaddr_in& dest_addr) {
+    if (sendto(sockfd, message.c_str(), message.length(), 0, (const struct sockaddr *)&dest_addr, sizeof(dest_addr)) < 0) {
+        std::cerr << "Erro ao enviar mensagem de texto" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 void ServerUDP::closeSocket() {
     if (sockfd >= 0) {
         close(sockfd);
