@@ -50,23 +50,3 @@ bool receiveResponse(Packet& response_packet, int sequence_number, ClientUDP& cl
     std::cerr << "Resposta inválida ou timeout do servidor para a requisição #" << sequence_number << std::endl;
     return false;
 }
-
-
-void sendRequest(const std::string& line, int& sequence_number, ClientUDP& client_socket, const sockaddr_in& server_addr, const std::string& server_ip_str) {
-    std::string dest_ip_str;
-    int value;
-
-    if (!validateInput(line, dest_ip_str, value)) {
-        return;
-    }
-
-    if (!sendRequestPacket(sequence_number, dest_ip_str, value, client_socket, server_addr)) {
-        return;
-    }
-
-    Packet response_packet;
-    if (receiveResponse(response_packet, sequence_number, client_socket)) {
-        logResponse(response_packet, sequence_number, server_ip_str, dest_ip_str, value);
-        sequence_number++;
-    }
-}
