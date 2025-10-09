@@ -7,35 +7,8 @@
 #include <condition_variable>
 #include "ClientDTO.h"
 #include "ServerUDP.h"
-
-enum class LogType {
-    NONE,
-    SUCCESS,
-    DUPLICATE
-};
-
-struct LogInfo {
-    LogType type = LogType::NONE;
-    int transaction_id = 0;
-    int value = 0;
-    std::string source_ip;
-    std::string dest_ip;
-};
-
-enum class TransactionStatus {
-    SUCCESS,
-    ERROR_CLIENT_NOT_FOUND,
-    ERROR_DUPLICATE_REQUEST,
-    ERROR_INSUFFICIENT_FUNDS
-};
-
-struct Transaction {
-    int id;
-    std::string source_ip;
-    std::string dest_ip;
-    int value;
-    int client_seqn;
-};
+#include "serverInterface.h"
+#include "utils.h"
 
 class Server {
     private:
@@ -46,17 +19,13 @@ class Server {
         ServerUDP server_socket;
         std::vector<ClientDTO> clients;
         std::vector<Transaction> transaction_history;
+        ServerInterface interface;
+
+        mutable std::mutex data_mutex;
 
         LogInfo last_log_info;
-
-        mutable std::mutex lock_reader;
-        mutable std::condition_variable condition_reader;
-        bool data_changed = false;
-
-        void interfaceThread();
         
         bool wasClientAdded(const std::string& client_ip);
-        void printClients_unlocked() const;
         std::vector<ClientDTO>::iterator findClient(const std::string& ip);
         TransactionStatus validateTransaction(std::vector<ClientDTO>::iterator& source_it, std::vector<ClientDTO>::iterator& dest_it, int value, int seqn);
         void executeTransaction(std::vector<ClientDTO>::iterator& source_it, std::vector<ClientDTO>::iterator& dest_it, int value, int seqn);
@@ -68,6 +37,9 @@ class Server {
         int getNumTransactions() const;
         int getTotalTransferred() const;
         int getTotalBalance() const;
+        LogInfo getLastLogInfo() const;
+        Transaction getLastTransaction() const;
+
         void addClient(const std::string& client_ip);
         void printClients() const;
         std::pair<TransactionStatus, float> processTransaction(const std::string& source_ip, uint32_t dest_addr, int value, int seqn);

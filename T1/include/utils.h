@@ -5,6 +5,35 @@
 
 #define INITIAL_BALANCE 1000.0f
 
+enum class LogType {
+    NONE,
+    SUCCESS,
+    DUPLICATE
+};
+
+struct LogInfo {
+    LogType type = LogType::NONE;
+    int transaction_id = 0;
+    int value = 0;
+    std::string source_ip;
+    std::string dest_ip;
+};
+
+enum class TransactionStatus {
+    SUCCESS,
+    ERROR_CLIENT_NOT_FOUND,
+    ERROR_DUPLICATE_REQUEST,
+    ERROR_INSUFFICIENT_FUNDS
+};
+
+struct Transaction {
+    int id;
+    std::string source_ip;
+    std::string dest_ip;
+    int value;
+    int client_seqn;
+};
+
 enum PacketType {
     DISCOVERY = 0,
     DISCOVERY_ACK = 1,

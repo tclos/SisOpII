@@ -1,6 +1,5 @@
 
 #include "Server.h"
-#include "serverInterface.h"
 #include "discovery.h"
 #include "transactions.h"
 #include <iostream>
@@ -12,11 +11,20 @@
 #define INITIAL_BALANCE 1000.0f
 
 Server::Server(int port)
-    : udp_port(port), num_transactions(0), total_transferred(0), total_balance(0), transaction_history(), clients(), server_socket(port) {}
+    : udp_port(port), 
+    num_transactions(0), 
+    total_transferred(0), 
+    total_balance(0), 
+    transaction_history(), 
+    clients(), 
+    server_socket(port), 
+    interface(*this) {}
 
 int Server::getNumTransactions() const {return num_transactions; }
 int Server::getTotalTransferred() const {return total_transferred; }
 int Server::getTotalBalance() const {return total_balance; }
+LogInfo Server::getLastLogInfo() const {return last_log_info; }
+Transaction Server::getLastTransaction() const {return transaction_history.back(); }
 
 void Server::init(int port) {
     struct sockaddr_in client_addr;
@@ -30,10 +38,7 @@ void Server::init(int port) {
     server_socket.setUpServerAddress();
     server_socket.bindSocket();
 
-    logInitialMessage(num_transactions, static_cast<int>(total_transferred), static_cast<int>(total_balance));
-
-    std::thread interface_thread(&Server::interfaceThread, this);
-    interface_thread.detach();
+    interface.start();
 
     while (true) {
         int n = server_socket.receivePacket(received_packet, client_addr);
@@ -58,7 +63,7 @@ void Server::init(int port) {
     server_socket.closeSocket();
 }
 
-void Server::printClients_unlocked() const {
+void Server::printClients() const {
     std::cout << std::left << std::setw(20) << "Endereço IP"
               << std::setw(25) << "Último ID recebido"
               << std::setw(15) << "Saldo Atual" << std::endl;
@@ -72,11 +77,6 @@ void Server::printClients_unlocked() const {
     std::cout << "-----------------------------------------------------\n" << std::endl;
 }
 
-
-void Server::printClients() const {
-    std::lock_guard<std::mutex> lock(lock_reader);
-    printClients_unlocked();
-}
 
 bool Server::wasClientAdded(const std::string& client_ip) {
     std::vector<ClientDTO>::iterator it = std::find_if(clients.begin(), clients.end(), [&](const ClientDTO& c) {
@@ -103,15 +103,12 @@ std::vector<ClientDTO>::iterator Server::findClient(const std::string& ip) {
 void Server::addClient(const std::string& client_ip) {
     bool client_added = false;
     {
-        std::unique_lock<std::mutex> lock(lock_reader);
+        std::lock_guard<std::mutex> lock(data_mutex);
         client_added = wasClientAdded(client_ip);
     }
-    condition_reader.notify_all();
 
     if (client_added) {
-        std::lock_guard<std::mutex> lock(lock_reader);
-        data_changed = true;
-        condition_reader.notify_all();
+        interface.notify();
     }
 }
 
@@ -159,11 +156,12 @@ std::pair<TransactionStatus, float> Server::processTransaction(const std::string
     struct in_addr dest_ip_struct;
     dest_ip_struct.s_addr = dest_addr_int;
     std::string dest_ip = inet_ntoa(dest_ip_struct);
+
     std::pair<TransactionStatus, float> result;
-    bool transaction_processed = false;
+    bool notify_transaction = false;
 
     {
-        std::unique_lock<std::mutex> lock(lock_reader);
+        std::lock_guard<std::mutex> lock(data_mutex);
 
         std::vector<ClientDTO>::iterator source_it = findClient(source_ip);
         std::vector<ClientDTO>::iterator dest_it = findClient(dest_ip);
@@ -171,71 +169,31 @@ std::pair<TransactionStatus, float> Server::processTransaction(const std::string
         TransactionStatus status = validateTransaction(source_it, dest_it, value, seqn);
 
         if (status == TransactionStatus::SUCCESS) {
+
             executeTransaction(source_it, dest_it, value, seqn);
             updateAndLogTransaction(source_ip, dest_ip, value, seqn);
+
             last_log_info.type = LogType::SUCCESS;
             result = {TransactionStatus::SUCCESS, source_it->getBalance()};
-            transaction_processed = true;
+            notify_transaction = true;
+
         } else if (status == TransactionStatus::ERROR_DUPLICATE_REQUEST) {
+
             last_log_info.type = LogType::DUPLICATE;
             last_log_info.transaction_id = seqn;
             last_log_info.value = value;
             last_log_info.source_ip = source_ip;
             last_log_info.dest_ip = inet_ntoa({dest_addr_int});
-            transaction_processed = true;
+            notify_transaction = true;
+
         } else {
             result = {status, (source_it == clients.end()) ? -1.0f : source_it->getBalance()};
         }
     }
 
-    condition_reader.notify_all();
-
-    if (transaction_processed) {
-        std::lock_guard<std::mutex> lock(lock_reader);
-        data_changed = true;
-        condition_reader.notify_all();
+    if (notify_transaction) {
+        interface.notify();
     }
 
     return result;
-}
-
-void Server::interfaceThread() {
-    while (true) {
-        std::unique_lock<std::mutex> lock(lock_reader);
-        
-        condition_reader.wait(lock, [this] { return data_changed; });
-
-        lock.unlock();
-
-        if (last_log_info.type == LogType::SUCCESS) {
-            if (!transaction_history.empty()) {
-                const auto& last_transaction = transaction_history.back();
-                logRequisitionMessage(
-                    last_transaction.source_ip, 
-                    last_transaction.client_seqn, 
-                    last_transaction.dest_ip, 
-                    last_transaction.value,
-                    num_transactions, 
-                    total_transferred, 
-                    total_balance
-                );
-            }
-        } else if (last_log_info.type == LogType::DUPLICATE) {
-            std::string log_msg = getDuplicatedMessage(
-                last_log_info.source_ip, 
-                last_log_info.transaction_id, 
-                last_log_info.dest_ip, 
-                last_log_info.value,
-                num_transactions, 
-                total_transferred, 
-                total_balance
-            );
-            std::cout << log_msg << std::endl;
-        }
-
-        data_changed = false;
-        last_log_info.type = LogType::NONE;
-        
-        lock.lock();
-    }
 }

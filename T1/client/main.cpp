@@ -1,13 +1,14 @@
 #include <iostream>
 #include <signal.h>
 #include "Client.h"
+#include "clientInterface.h"
 #include "utils.h"
 
-Client* global_client = nullptr;
+ClientInterface* global_interface = nullptr;
 
 void signalHandler(int signum) {
-    if (global_client != nullptr) {
-        global_client->shutdown();
+    if (global_interface != nullptr) {
+        global_interface->shutdown();
     }
 }
 
@@ -17,17 +18,11 @@ int main(int argc, char* argv[]) {
     int port = getValidatedPort(argc, argv);
     if (port == -1) return 1;
 
-    try {
-        Client client(port);
+    Client client(port);
+    ClientInterface interface(client);
+    global_interface = &interface;
 
-        global_client = &client;
-
-        client.init();
-
-    } catch (const std::runtime_error& e) {
-        std::cerr << "Erro: " << e.what() << std::endl;
-        return 1;
-    }
+    interface.start();
 
     std::cout << "Cliente encerrado." << std::endl;
     return 0;
