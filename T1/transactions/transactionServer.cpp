@@ -11,10 +11,10 @@ void handleTransactionRequest(const Packet& request_packet, const struct sockadd
         int value = ntohl(request_packet.data.req.value);
         int seqn = ntohl(request_packet.data.req.seqn);
 
-        std::pair<TransactionStatus, float> result = server_data.processTransaction(source_ip, request_packet.data.req.dest_addr, value, seqn);
+        std::tuple<TransactionStatus, float, int> result = server_data.processTransaction(source_ip, request_packet.data.req.dest_addr, value, seqn);
 
-        TransactionStatus status = result.first;
-        float balance = result.second;
+        TransactionStatus status = std::get<0>(result);;
+        float balance = std::get<1>(result);;
 
         Packet response_packet;
         response_packet.type = htons(TRANSACTION_ACK);

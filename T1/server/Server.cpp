@@ -18,13 +18,45 @@ Server::Server(int port)
     transaction_history(), 
     clients(), 
     server_socket(port), 
-    interface(*this) {}
+    interface(*this),
+    readers_count(0),
+    writer_active(false),
+    writers_waiting(0) {}
 
-int Server::getNumTransactions() const {return num_transactions; }
-int Server::getTotalTransferred() const {return total_transferred; }
-int Server::getTotalBalance() const {return total_balance; }
-LogInfo Server::getLastLogInfo() const {return last_log_info; }
-Transaction Server::getLastTransaction() const {return transaction_history.back(); }
+int Server::getNumTransactions() const {
+    reader_lock();
+    int result = num_transactions;
+    reader_unlock();
+    return result;
+}
+
+int Server::getTotalTransferred() const {
+    reader_lock();
+    int result = total_transferred;
+    reader_unlock();
+    return result;
+}
+
+int Server::getTotalBalance() const {
+    reader_lock();
+    int result = total_balance;
+    reader_unlock();
+    return result;
+}
+
+LogInfo Server::getLastLogInfo() const {
+    reader_lock();
+    LogInfo result = last_log_info;
+    reader_unlock();
+    return result;
+}
+
+Transaction Server::getLastTransaction() const {
+    reader_lock();
+    Transaction result = transaction_history.back();
+    reader_unlock();
+    return result;
+}
 
 void Server::init(int port) {
     struct sockaddr_in client_addr;
@@ -102,10 +134,9 @@ std::vector<ClientDTO>::iterator Server::findClient(const std::string& ip) {
 
 void Server::addClient(const std::string& client_ip) {
     bool client_added = false;
-    {
-        std::lock_guard<std::mutex> lock(data_mutex);
-        client_added = wasClientAdded(client_ip);
-    }
+    writer_lock();
+    client_added = wasClientAdded(client_ip);
+    writer_unlock();
 
     if (client_added) {
         interface.notify();
@@ -117,8 +148,11 @@ TransactionStatus Server::validateTransaction(std::vector<ClientDTO>::iterator& 
         std::cerr << "Erro: Cliente de origem ou destino não encontrado." << std::endl;
         return TransactionStatus::ERROR_CLIENT_NOT_FOUND;
     }
-    if (seqn <= source_it->getLastRequest() || seqn > source_it->getLastRequest() + 1) {
+    if (seqn <= source_it->getLastRequest()) {
         return TransactionStatus::ERROR_DUPLICATE_REQUEST;
+    }
+    if (seqn > source_it->getLastRequest() + 1) {
+        return TransactionStatus::ERROR_OUT_OF_SEQUENCE;
     }
     if (source_it->getBalance() < value) {
         return TransactionStatus::ERROR_INSUFFICIENT_FUNDS;
@@ -145,48 +179,79 @@ void Server::updateAndLogTransaction(const std::string& source_ip, const std::st
     this->transaction_history.push_back(new_transaction);
 }
 
-std::pair<TransactionStatus, float> Server::processTransaction(const std::string& source_ip, uint32_t dest_addr_int, int value, int seqn) {
+std::tuple<TransactionStatus, float, int> Server::processTransaction(const std::string& source_ip, uint32_t dest_addr_int, int value, int seqn) {
     struct in_addr dest_ip_struct;
     dest_ip_struct.s_addr = dest_addr_int;
     std::string dest_ip = inet_ntoa(dest_ip_struct);
-
-    std::pair<TransactionStatus, float> result;
+    
+    std::tuple<TransactionStatus, float, int> result;
     bool notify_transaction = false;
 
-    {
-        std::lock_guard<std::mutex> lock(data_mutex);
+    writer_lock();
 
-        std::vector<ClientDTO>::iterator source_it = findClient(source_ip);
-        std::vector<ClientDTO>::iterator dest_it = findClient(dest_ip);
+    auto source_it = findClient(source_ip);
+    auto dest_it = findClient(dest_ip);
 
-        TransactionStatus status = validateTransaction(source_it, dest_it, value, seqn);
+    TransactionStatus status = validateTransaction(source_it, dest_it, value, seqn);
 
-        if (status == TransactionStatus::SUCCESS) {
+    if (status == TransactionStatus::SUCCESS) {
+        executeTransaction(source_it, dest_it, value, seqn);
+        updateAndLogTransaction(source_ip, dest_ip, value, seqn);
+        last_log_info.type = LogType::SUCCESS;
+        result = {TransactionStatus::SUCCESS, source_it->getBalance(), source_it->getLastRequest()};
+        notify_transaction = true;
 
-            executeTransaction(source_it, dest_it, value, seqn);
-            updateAndLogTransaction(source_ip, dest_ip, value, seqn);
+    } else if (status == TransactionStatus::ERROR_DUPLICATE_REQUEST || status == TransactionStatus::ERROR_OUT_OF_SEQUENCE) {
+        last_log_info.type = LogType::DUPLICATE;
+        last_log_info.transaction_id = seqn;
+        last_log_info.value = value;
+        last_log_info.source_ip = source_ip;
+        last_log_info.dest_ip = dest_ip;
+        result = {status, source_it->getBalance(), source_it->getLastRequest()};
+        notify_transaction = true;
 
-            last_log_info.type = LogType::SUCCESS;
-            result = {TransactionStatus::SUCCESS, source_it->getBalance()};
-            notify_transaction = true;
-
-        } else if (status == TransactionStatus::ERROR_DUPLICATE_REQUEST) {
-
-            last_log_info.type = LogType::DUPLICATE;
-            last_log_info.transaction_id = seqn;
-            last_log_info.value = value;
-            last_log_info.source_ip = source_ip;
-            last_log_info.dest_ip = inet_ntoa({dest_addr_int});
-            notify_transaction = true;
-
-        } else {
-            result = {status, (source_it == clients.end()) ? -1.0f : source_it->getBalance()};
-        }
+    } else {
+        int last_req = (source_it == clients.end()) ? 0 : source_it->getLastRequest();
+        float balance = (source_it == clients.end()) ? -1.0f : source_it->getBalance();
+        result = {status, balance, last_req};
     }
+
+    writer_unlock();
 
     if (notify_transaction) {
         interface.notify();
     }
-
     return result;
+}
+
+void Server::reader_lock() const {
+    std::unique_lock<std::mutex> lock(data_mutex);
+    reader_cv.wait(lock, [this] { return !writer_active && writers_waiting == 0; });
+    readers_count++;
+}
+
+void Server::reader_unlock() const {
+    std::lock_guard<std::mutex> lock(data_mutex);
+    readers_count--;
+    if (readers_count == 0) {
+        writer_cv.notify_one();
+    }
+}
+
+void Server::writer_lock() {
+    std::unique_lock<std::mutex> lock(data_mutex);
+    writers_waiting++;
+    writer_cv.wait(lock, [this] { return readers_count == 0 && !writer_active; });
+    writers_waiting--;
+    writer_active = true;
+}
+
+void Server::writer_unlock() {
+    std::lock_guard<std::mutex> lock(data_mutex);
+    writer_active = false;
+    if (writers_waiting > 0) {
+        writer_cv.notify_one();
+    } else {
+        reader_cv.notify_all();
+    }
 }
