@@ -22,6 +22,11 @@ class Server {
         ServerInterface interface;
 
         mutable std::mutex data_mutex;
+        mutable std::condition_variable reader_cv;
+        mutable std::condition_variable writer_cv;
+        mutable int readers_count;
+        bool writer_active;
+        int writers_waiting;
 
         LogInfo last_log_info;
         
@@ -42,8 +47,13 @@ class Server {
 
         void addClient(const std::string& client_ip);
         void printClients() const;
-        std::pair<TransactionStatus, float> processTransaction(const std::string& source_ip, uint32_t dest_addr, int value, int seqn);
+        std::tuple<TransactionStatus, float, int> processTransaction(const std::string& source_ip, uint32_t dest_addr_int, int value, int seqn);
         void init(int port);
+
+        void reader_lock() const;
+        void reader_unlock() const;
+        void writer_lock();
+        void writer_unlock();
 };
 
 #endif // SERVER_H

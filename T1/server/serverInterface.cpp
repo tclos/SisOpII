@@ -31,6 +31,8 @@ void ServerInterface::run() {
         std::unique_lock<std::mutex> lock(mtx);
         cv.wait(lock, [this] { return data_changed; });
 
+        server.reader_lock();
+
         LogInfo log_info = server.getLastLogInfo();
 
         if (log_info.type == LogType::SUCCESS) {
@@ -39,6 +41,8 @@ void ServerInterface::run() {
         } else if (log_info.type == LogType::DUPLICATE) {
             logDuplicatedMessage(log_info);
         }
+        
+        server.reader_unlock();
         
         data_changed = false;
     }

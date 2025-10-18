@@ -23,7 +23,8 @@ enum class TransactionStatus {
     SUCCESS,
     ERROR_CLIENT_NOT_FOUND,
     ERROR_DUPLICATE_REQUEST,
-    ERROR_INSUFFICIENT_FUNDS
+    ERROR_INSUFFICIENT_FUNDS,
+    ERROR_OUT_OF_SEQUENCE
 };
 
 struct Transaction {
@@ -51,6 +52,7 @@ struct AckData {
     uint32_t seqn;
     float new_balance;
     uint32_t status;
+    uint32_t last_req;
 };
 
 struct Packet {
