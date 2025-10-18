@@ -35,6 +35,8 @@ class Server {
         TransactionStatus validateTransaction(std::vector<ClientDTO>::iterator& source_it, std::vector<ClientDTO>::iterator& dest_it, int value, int seqn);
         void executeTransaction(std::vector<ClientDTO>::iterator& source_it, std::vector<ClientDTO>::iterator& dest_it, int value, int seqn);
         void updateAndLogTransaction(const std::string& source_ip, const std::string& dest_ip, int value, int seqn);
+        void setupDuplicateRequestLog(const std::string& source_ip, const std::string& dest_ip, int value, int seqn);
+        std::pair<TransactionStatus, float> handleTransactionLogic(const std::string& source_ip, const std::string& dest_ip, int value, int seqn);
     
     public:
         Server(int port);

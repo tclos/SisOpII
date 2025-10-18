@@ -24,38 +24,26 @@ Server::Server(int port)
     writers_waiting(0) {}
 
 int Server::getNumTransactions() const {
-    reader_lock();
-    int result = num_transactions;
-    reader_unlock();
-    return result;
+    return num_transactions;
 }
 
 int Server::getTotalTransferred() const {
-    reader_lock();
-    int result = total_transferred;
-    reader_unlock();
-    return result;
+    return total_transferred;
 }
 
 int Server::getTotalBalance() const {
-    reader_lock();
-    int result = total_balance;
-    reader_unlock();
-    return result;
+    return total_balance;
 }
 
 LogInfo Server::getLastLogInfo() const {
-    reader_lock();
-    LogInfo result = last_log_info;
-    reader_unlock();
-    return result;
+    return last_log_info;
 }
 
 Transaction Server::getLastTransaction() const {
-    reader_lock();
-    Transaction result = transaction_history.back();
-    reader_unlock();
-    return result;
+    if (transaction_history.empty()) {
+        return Transaction{};
+    }
+    return transaction_history.back();
 }
 
 void Server::init(int port) {
@@ -96,6 +84,8 @@ void Server::init(int port) {
 }
 
 void Server::printClients() const {
+    reader_lock();
+
     std::cout << std::left << std::setw(20) << "Endereço IP"
               << std::setw(25) << "Último ID recebido"
               << std::setw(15) << "Saldo Atual" << std::endl;
@@ -107,6 +97,8 @@ void Server::printClients() const {
                   << std::fixed << std::setprecision(2) << client.getBalance() << std::endl;
     }
     std::cout << "-----------------------------------------------------\n" << std::endl;
+    
+    reader_unlock();
 }
 
 
@@ -145,7 +137,6 @@ void Server::addClient(const std::string& client_ip) {
 
 TransactionStatus Server::validateTransaction(std::vector<ClientDTO>::iterator& source_it, std::vector<ClientDTO>::iterator& dest_it, int value, int seqn) {
     if (source_it == clients.end() || dest_it == clients.end()) {
-        std::cerr << "Erro: Cliente de origem ou destino não encontrado." << std::endl;
         return TransactionStatus::ERROR_CLIENT_NOT_FOUND;
     }
     if (seqn <= source_it->getLastRequest()) {
@@ -179,16 +170,15 @@ void Server::updateAndLogTransaction(const std::string& source_ip, const std::st
     this->transaction_history.push_back(new_transaction);
 }
 
-std::tuple<TransactionStatus, float, int> Server::processTransaction(const std::string& source_ip, uint32_t dest_addr_int, int value, int seqn) {
-    struct in_addr dest_ip_struct;
-    dest_ip_struct.s_addr = dest_addr_int;
-    std::string dest_ip = inet_ntoa(dest_ip_struct);
-    
-    std::tuple<TransactionStatus, float, int> result;
-    bool notify_transaction = false;
+void Server::setupDuplicateRequestLog(const std::string& source_ip, const std::string& dest_ip, int value, int seqn) {
+    last_log_info.type = LogType::DUPLICATE;
+    last_log_info.transaction_id = seqn;
+    last_log_info.value = value;
+    last_log_info.source_ip = source_ip;
+    last_log_info.dest_ip = dest_ip;
+}
 
-    writer_lock();
-
+std::pair<TransactionStatus, float> Server::handleTransactionLogic(const std::string& source_ip, const std::string& dest_ip, int value, int seqn) {
     auto source_it = findClient(source_ip);
     auto dest_it = findClient(dest_ip);
 
@@ -198,30 +188,46 @@ std::tuple<TransactionStatus, float, int> Server::processTransaction(const std::
         executeTransaction(source_it, dest_it, value, seqn);
         updateAndLogTransaction(source_ip, dest_ip, value, seqn);
         last_log_info.type = LogType::SUCCESS;
-        result = {TransactionStatus::SUCCESS, source_it->getBalance(), source_it->getLastRequest()};
-        notify_transaction = true;
-
-    } else if (status == TransactionStatus::ERROR_DUPLICATE_REQUEST || status == TransactionStatus::ERROR_OUT_OF_SEQUENCE) {
-        last_log_info.type = LogType::DUPLICATE;
-        last_log_info.transaction_id = seqn;
-        last_log_info.value = value;
-        last_log_info.source_ip = source_ip;
-        last_log_info.dest_ip = dest_ip;
-        result = {status, source_it->getBalance(), source_it->getLastRequest()};
-        notify_transaction = true;
-
-    } else {
-        int last_req = (source_it == clients.end()) ? 0 : source_it->getLastRequest();
-        float balance = (source_it == clients.end()) ? -1.0f : source_it->getBalance();
-        result = {status, balance, last_req};
+        return {TransactionStatus::SUCCESS, source_it->getBalance()};
+    } 
+    
+    if (status == TransactionStatus::ERROR_DUPLICATE_REQUEST || status == TransactionStatus::ERROR_OUT_OF_SEQUENCE) {
+        setupDuplicateRequestLog(source_ip, dest_ip, value, seqn);
+        return {status, source_it->getBalance()};
     }
+
+    // Para outros erros
+    float balance = (source_it == clients.end()) ? -1.0f : source_it->getBalance();
+    return {status, balance};
+}
+
+std::tuple<TransactionStatus, float, int> Server::processTransaction(const std::string& source_ip, uint32_t dest_addr_int, int value, int seqn) {
+    writer_lock();
+    
+    struct in_addr dest_ip_struct;
+    dest_ip_struct.s_addr = dest_addr_int;
+    char dest_ip_cstr[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &dest_ip_struct, dest_ip_cstr, INET_ADDRSTRLEN);
+    std::string dest_ip(dest_ip_cstr);
+    
+    std::pair<TransactionStatus, float> transaction_result = handleTransactionLogic(source_ip, dest_ip, value, seqn);
+    TransactionStatus status = transaction_result.first;
+    float balance = transaction_result.second;
+    
+    bool should_notify = (status == TransactionStatus::SUCCESS || 
+                          status == TransactionStatus::ERROR_DUPLICATE_REQUEST || 
+                          status == TransactionStatus::ERROR_OUT_OF_SEQUENCE);
+
+    auto source_it = findClient(source_ip);
+    int last_req = (source_it == clients.end()) ? 0 : source_it->getLastRequest();
 
     writer_unlock();
 
-    if (notify_transaction) {
+    if (should_notify) {
         interface.notify();
     }
-    return result;
+    
+    return {status, balance, last_req};
 }
 
 void Server::reader_lock() const {

@@ -84,7 +84,6 @@ void ClientInterface::processCommand(const std::string& command) {
                 logError("Saldo insuficiente para realizar a transação.");
                 break;
             case TransactionStatus::ERROR_CLIENT_NOT_FOUND:
-                logError("Cliente de origem ou destino não encontrado.");
                 break;
             case TransactionStatus::ERROR_DUPLICATE_REQUEST:
                 logError("Requisição duplicada (ID " + std::to_string(client.getSequenceNumber()) + "). O servidor já processou esta requisição.");
