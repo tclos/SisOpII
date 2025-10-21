@@ -11,4 +11,6 @@ void handleDiscoveryPacket(ServerUDP& server_socket, Server& server_data, struct
     Packet response_packet;
     response_packet.type = htons(DISCOVERY_ACK);
     server_socket.sendPacket(response_packet, client_addr);
+
+    server_data.printClients();
 }

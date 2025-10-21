@@ -73,29 +73,33 @@ void ClientInterface::processCommand(const std::string& command) {
     if (result.first) {
         AckData ack_data = result.second;
         TransactionStatus status = static_cast<TransactionStatus>(ntohl(ack_data.status));
+        uint32_t last_req_from_server = ntohl(ack_data.last_req);
 
         switch (status) {
             case TransactionStatus::SUCCESS:
-                logResponse(client.getSequenceNumber() - 1, dest_ip, value, ack_data);
+                logResponse(client.getSequenceNumber(), dest_ip, value, ack_data);
                 client.incrementSequenceNumber();
                 break;
             case TransactionStatus::ERROR_INSUFFICIENT_FUNDS:
                 logError("Saldo insuficiente para realizar a transação.");
                 break;
             case TransactionStatus::ERROR_CLIENT_NOT_FOUND:
-                logError("Cliente de origem ou destino não encontrado.");
                 break;
             case TransactionStatus::ERROR_DUPLICATE_REQUEST:
-                logError("Requisição duplicada ou fora de ordem detectada pelo servidor.");
-                logResponse(client.getSequenceNumber() - 1, dest_ip, value, ack_data);
+                logError("Requisição duplicada (ID " + std::to_string(client.getSequenceNumber()) + "). O servidor já processou esta requisição.");
+                logError("O último ID de requisição processado pelo servidor foi: " + std::to_string(last_req_from_server) + ". Avançando para a próxima.");
                 client.incrementSequenceNumber();
+                break;
+            case TransactionStatus::ERROR_OUT_OF_SEQUENCE:
+                logError("Requisição fora de ordem (ID " + std::to_string(client.getSequenceNumber()) + ").");
+                logError("O último ID processado pelo servidor foi: " + std::to_string(last_req_from_server) + ". A próxima requisição esperada é a de ID: " + std::to_string(last_req_from_server + 1) + ".");
                 break;
             default:
                 logError("Recebida resposta com status desconhecido do servidor.");
                 break;
         }
     } else {
-        logError("Não foi possível obter resposta do servidor para a requisição #" + std::to_string(client.getSequenceNumber() - 1));
+        logError("Não foi possível obter resposta do servidor para a requisição #" + std::to_string(client.getSequenceNumber()));
     }
 }
 
