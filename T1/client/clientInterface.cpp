@@ -2,10 +2,11 @@
 #include "Client.h"
 #include "transactions.h"
 #include <iostream>
+//esse arquivo implementa as threads produtor e consumidor
 
 ClientInterface::ClientInterface(Client& c) : client(c) {}
 
-void ClientInterface::start() {
+void ClientInterface::start() {//procura o servidor e inicia as duas threads
     try {
         std::string server_addr = client.discoverServer();
         logInitialMessage(server_addr);
@@ -29,28 +30,30 @@ void ClientInterface::shutdown() {
     condition.notify_all();
 }
 
+//thread produtora 
 void ClientInterface::userInputThread() {
-    for (std::string line; std::getline(std::cin, line);) {
+    for (std::string line; std::getline(std::cin, line);) { //le oque o usuário digitou
         if (line.empty()) continue;
         {
-            std::lock_guard<std::mutex> lock(queue_mutex);
+            std::lock_guard<std::mutex> lock(queue_mutex);//tranca a fila, joga o comando na fila e avisa pra outra thread que tem um novo item
             command_queue.push(line);
         }
-        condition.notify_one();
+        condition.notify_one();//notifica thread consumidora
     }
-    shutdown(); // CTRL+D pressionado
+    shutdown(); // CTRL+D pressionado - leitura da thread encerra
 }
 
+//thread consumidora - consome comandos da fila
 void ClientInterface::communicationThread() {
     std::string command;
     while (tryGetCommandFromQueue(command)) {
-        processCommand(command);
+        processCommand(command);//processa o comando da fila
     }
 }
 
 bool ClientInterface::tryGetCommandFromQueue(std::string& out_command) {
     std::unique_lock<std::mutex> lock(queue_mutex);
-    condition.wait(lock, [this] { return !command_queue.empty() || finished; });
+    condition.wait(lock, [this] { return !command_queue.empty() || finished; }); //fica dormindo e nao gasta CPU até thread consumidora ser notificada
 
     if (finished && command_queue.empty()) {
         return false;
