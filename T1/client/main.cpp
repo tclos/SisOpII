@@ -4,6 +4,9 @@
 #include "clientInterface.h"
 #include "utils.h"
 
+//Valida a Porta
+//cria objetos Client e ClientInterface - para que a interface possa chamar as funções (como descobrir o servidor ou enviar transação)
+//chama interface.start() que inicia o programa pro usuário
 ClientInterface* global_interface = nullptr;
 
 void signalHandler(int signum) {
