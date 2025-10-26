@@ -2,6 +2,7 @@
 #define UTILS_H
 
 #include <string>
+#include <cstdint>
 
 #define INITIAL_BALANCE 1000.0f
 

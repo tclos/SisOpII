@@ -43,7 +43,9 @@ bool receiveResponse(Packet& response_packet, int sequence_number, ClientUDP& cl
     struct sockaddr_in response_addr;
     int n = client_socket.receivePacket(response_packet, response_addr);
 
-    if (n > 0 && ntohs(response_packet.type) == TRANSACTION_ACK && ntohl(response_packet.data.ack.seqn) == sequence_number) {
+    if (n > 0 &&
+        ntohs(response_packet.type) == TRANSACTION_ACK &&
+        ntohl(response_packet.data.ack.seqn) == static_cast<uint32_t>(sequence_number)) {  //cast update
         return true;
     }
     

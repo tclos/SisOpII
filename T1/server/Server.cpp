@@ -1,4 +1,3 @@
-
 #include "Server.h"
 #include "discovery.h"
 #include "transactions.h"
@@ -12,16 +11,16 @@
 
 Server::Server(int port)
     : udp_port(port), 
-    num_transactions(0), 
-    total_transferred(0), 
-    total_balance(0), 
-    transaction_history(), 
-    clients(), 
-    server_socket(port), 
-    interface(*this),
-    readers_count(0),
-    writer_active(false),
-    writers_waiting(0) {}
+      num_transactions(0), 
+      total_transferred(0), 
+      total_balance(0),
+      server_socket(port),           //Ordem corrigida
+      clients(),
+      transaction_history(),
+      interface(*this),
+      readers_count(0),
+      writer_active(false),
+      writers_waiting(0) {}
 
 int Server::getNumTransactions() const {
     return num_transactions;
@@ -100,7 +99,6 @@ void Server::printClients() const {
     
     reader_unlock();
 }
-
 
 bool Server::wasClientAdded(const std::string& client_ip) {
     std::vector<ClientDTO>::iterator it = std::find_if(clients.begin(), clients.end(), [&](const ClientDTO& c) {
@@ -196,7 +194,6 @@ std::pair<TransactionStatus, float> Server::handleTransactionLogic(const std::st
         return {status, source_it->getBalance()};
     }
 
-    // Para outros erros
     float balance = (source_it == clients.end()) ? -1.0f : source_it->getBalance();
     return {status, balance};
 }
