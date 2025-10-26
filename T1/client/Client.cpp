@@ -5,10 +5,12 @@
 #include <cstring>
 #include <iostream>
 
+//esse arquivo gerencia o estado do cliente (como o ID da requisição atual) e lida com a lógica de rede (enviar, receber e tentar de novo)
+
 #define TIMEOUT_MS 10000 // 10 milissegundos
 #define MAX_RETRIES 5
 
-Client::Client(int port)
+Client::Client(int port) //Inicializa o cliente e define o ID da requisição como 1
     : port(port), sequence_number(1), client_socket(port) {
     this->server_address = "";
     memset(&server_sock_addr, 0, sizeof(server_sock_addr));
@@ -17,7 +19,9 @@ Client::Client(int port)
 int Client::getSequenceNumber() const { return sequence_number; }
 std::string Client::getServerAddress() const { return server_address; }
 
-std::string Client::discoverServer() {
+//chama a função que envia uma mensagem para a rede e espera uma resposta do servidor, 
+//armazena o IP do servidor que respondeu, configura o socker principal do cliente com um timeout
+std::string Client::discoverServer() { 
     this->server_address = run_discovery_service_client(port);
     
     client_socket.createSocket();
@@ -30,6 +34,9 @@ std::string Client::discoverServer() {
     return this->server_address;
 }
 
+//entra em um loop whie que tenta no max MAX_RETRIES
+//em cada tentativa chama o sendRequestPacket para enviar a transação
+//depois chama receiveResponse para esperar por um ACK, se receber um ack válido a função retorna TRUE, se der timeout retorna FALSE
 std::pair<bool, AckData> Client::executeRequestWithRetries(const std::string& dest_ip, int value) {
     int retries = 0;
     bool ack_received = false;
@@ -50,6 +57,7 @@ std::pair<bool, AckData> Client::executeRequestWithRetries(const std::string& de
     return {false, {}};
 }
 
+//incrementa o ID da requisição para a próxima transação
 void Client::incrementSequenceNumber() {
     this->sequence_number++;
 }
