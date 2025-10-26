@@ -1,4 +1,14 @@
-## Como testar
+## Como compilar
+
+```
+make clean
+```
+
+```
+make
+```
+
+## Como testar durante o desenvolvimento
 
 Buildar o container
 
