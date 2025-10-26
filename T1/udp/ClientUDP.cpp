@@ -5,7 +5,7 @@
 #include <arpa/inet.h>
 
 ClientUDP::ClientUDP(int port)
-    : port(port), sockfd(-1), server(nullptr) {}
+    : sockfd(-1) {}
 
 bool ClientUDP::createSocket() {
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {

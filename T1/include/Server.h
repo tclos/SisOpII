@@ -12,7 +12,6 @@
 
 class Server {
     private:
-        int udp_port;
         int num_transactions;
         int total_transferred;
         int total_balance;

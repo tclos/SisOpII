@@ -11,13 +11,12 @@
 #define INITIAL_BALANCE 1000.0f
 
 Server::Server(int port)
-    : udp_port(port), 
-    num_transactions(0), 
+    : num_transactions(0), 
     total_transferred(0), 
-    total_balance(0), 
-    transaction_history(), 
-    clients(), 
-    server_socket(port), 
+    total_balance(0),
+    server_socket(port),
+    clients(),
+    transaction_history(),   
     interface(*this),
     readers_count(0),
     writer_active(false),

@@ -8,10 +8,8 @@
 
 class ClientUDP {
     private:
-        int port;
         int sockfd;
-        struct sockaddr_in server_addr, client_addr;
-        struct hostent *server;
+        struct sockaddr_in server_addr;
 
     public:
         ClientUDP(int port);

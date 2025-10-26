@@ -1,5 +1,5 @@
 #ifndef CLIENT_DTO_H
-#define CLIENT_dtO_H
+#define CLIENT_DTO_H
 
 #include <string>
 #include "utils.h"
