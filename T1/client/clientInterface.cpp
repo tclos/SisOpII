@@ -2,11 +2,10 @@
 #include "Client.h"
 #include "transactions.h"
 #include <iostream>
-//esse arquivo implementa as threads produtor e consumidor
 
 ClientInterface::ClientInterface(Client& c) : client(c) {}
 
-void ClientInterface::start() {//procura o servidor e inicia as duas threads
+void ClientInterface::start() { //procura o servidor e inicia as duas threads
     try {
         std::string server_addr = client.discoverServer();
         logInitialMessage(server_addr);
@@ -32,28 +31,28 @@ void ClientInterface::shutdown() {
 
 //thread produtora 
 void ClientInterface::userInputThread() {
-    for (std::string line; std::getline(std::cin, line);) { //le oque o usuário digitou
+    for (std::string line; std::getline(std::cin, line);) { // lê o que o usuário digitou
         if (line.empty()) continue;
         {
-            std::lock_guard<std::mutex> lock(queue_mutex);//tranca a fila, joga o comando na fila e avisa pra outra thread que tem um novo item
+            std::lock_guard<std::mutex> lock(queue_mutex); //tranca a fila, adiciona o comando na fila e avisa pra outra thread que tem um novo item
             command_queue.push(line);
         }
-        condition.notify_one();//notifica thread consumidora
+        condition.notify_one(); //notifica thread consumidora
     }
     shutdown(); // CTRL+D pressionado - leitura da thread encerra
 }
 
-//thread consumidora - consome comandos da fila
+// thread consumidora - consome comandos da fila
 void ClientInterface::communicationThread() {
     std::string command;
     while (tryGetCommandFromQueue(command)) {
-        processCommand(command);//processa o comando da fila
+        processCommand(command);
     }
 }
 
 bool ClientInterface::tryGetCommandFromQueue(std::string& out_command) {
     std::unique_lock<std::mutex> lock(queue_mutex);
-    condition.wait(lock, [this] { return !command_queue.empty() || finished; }); //fica dormindo e nao gasta CPU até thread consumidora ser notificada
+    condition.wait(lock, [this] { return !command_queue.empty() || finished; });
 
     if (finished && command_queue.empty()) {
         return false;
