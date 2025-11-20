@@ -12,6 +12,7 @@ private:
 
 public:
     ServerUDP(int port);
+    int getPort();
     bool createSocket();
     void setUpServerAddress();
     bool bindSocket();
@@ -19,6 +20,7 @@ public:
     int receivePacket(Packet& packet, struct sockaddr_in& sender_addr);
     bool sendPacket(const Packet& packet, const struct sockaddr_in& dest_addr);
     bool sendMessage(const std::string& message, const struct sockaddr_in& dest_addr);
+    void setReceiveTimeout(int seconds, int microseconds);
     void closeSocket();
     ~ServerUDP();
 };
