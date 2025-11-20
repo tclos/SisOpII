@@ -6,8 +6,6 @@
 #include <iostream>
 
 //esse arquivo gerencia o estado do cliente (como o ID da requisição atual) e lida com a lógica de rede (enviar, receber e tentar de novo)
-
-#define TIMEOUT_MS 10000 // 10 milissegundos
 #define MAX_RETRIES 5
 
 Client::Client(int port) //Inicializa o cliente e define o ID da requisição como 1
@@ -41,19 +39,42 @@ std::pair<bool, AckData> Client::executeRequestWithRetries(const std::string& de
     int retries = 0;
     bool ack_received = false;
 
-    while (!ack_received && retries < MAX_RETRIES) {
+    while (retries < MAX_RETRIES) {
         if (!sendRequestPacket(sequence_number, dest_ip, value, client_socket, server_sock_addr)) {
-            return {false, {}};
+            std::cerr << "Erro ao enviar pacote." << std::endl;
         }
 
         Packet response_packet;
         if (receiveResponse(response_packet, sequence_number, client_socket)) {
             return {true, response_packet.data.ack};
-        } else {
-            retries++;
+        } 
+        
+        std::cout << "Sem resposta do servidor (Tentativa " << (retries + 1) << "/" << MAX_RETRIES << ")..." << std::endl;
+        retries++;
+
+        if (retries >= 1) { 
+            std::cout << "Tentando localizar novo Servidor Primário..." << std::endl;
+            
+            try {
+                std::string found_server_ip = discoverServer();
+                
+                if (!found_server_ip.empty() && found_server_ip != this->server_address) {
+                    std::cout << "[INFO] Novo Servidor Primário encontrado: " << found_server_ip << std::endl;
+                    
+                    this->server_address = found_server_ip;
+                    
+                    memset(&server_sock_addr, 0, sizeof(server_sock_addr));
+                    server_sock_addr.sin_family = AF_INET;
+                    server_sock_addr.sin_port = htons(this->port);
+                    inet_pton(AF_INET, this->server_address.c_str(), &server_sock_addr.sin_addr);
+                    
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "Falha na descoberta: " << e.what() << std::endl;
+            }
         }
     }
-    
+
     return {false, {}};
 }
 

@@ -7,8 +7,7 @@
 #include <iomanip>
 #include <thread>
 #include <arpa/inet.h>
-
-#define INITIAL_BALANCE 1000.0f
+#include <cstring>
 
 Server::Server(int port)
     : num_transactions(0), 
@@ -45,6 +44,10 @@ Transaction Server::getLastTransaction() const {
     return transaction_history.back();
 }
 
+ServerRole Server::getRole() const {
+    return this->current_role;
+}
+
 void Server::init(int port) {
     struct sockaddr_in client_addr;
     Packet received_packet;
@@ -57,6 +60,30 @@ void Server::init(int port) {
     server_socket.setUpServerAddress();
     server_socket.bindSocket();
 
+    std::string primary_ip = run_discovery_service_server(server_socket, port);
+
+    if (!primary_ip.empty()) {
+        this->current_role = BACKUP;
+        std::cout << "Primário encontrado em " << primary_ip << ". Iniciando como BACKUP." << std::endl;
+
+        memset(&primary_server_addr, 0, sizeof(primary_server_addr));
+        primary_server_addr.sin_family = AF_INET;
+        primary_server_addr.sin_port = htons(port);
+        inet_pton(AF_INET, primary_ip.c_str(), &primary_server_addr.sin_addr);
+
+        Packet reg_packet;
+        reg_packet.type = htons(REGISTER_BACKUP);
+        server_socket.sendPacket(reg_packet, primary_server_addr);
+
+        startHeartbeatMonitor();
+
+    } else {
+        this->current_role = PRIMARY;
+        std::cout << "Nenhum primário encontrado. Assumindo papel de PRIMARY." << std::endl;
+        
+        startHeartbeatSender();
+    }
+
     interface.start();
 
     while (true) {
@@ -65,12 +92,60 @@ void Server::init(int port) {
 
         switch (ntohs(received_packet.type)) {
             case TRANSACTION_REQ: {
-                Packet req_copy = received_packet;
-                handleTransactionRequest(req_copy, client_addr, *this, server_socket);
+                if (this->current_role == PRIMARY) {
+                    Packet req_copy = received_packet;
+                    handleTransactionRequest(req_copy, client_addr, *this, server_socket);
+                } else {
+                    handleStateUpdate(received_packet);
+                }
                 break;
             }
             case DISCOVERY: {
                 handleDiscoveryPacket(server_socket, *this, client_addr);
+                break;
+            }
+            case DISCOVERY_ACK: {
+                break;
+            }
+            case REGISTER_BACKUP: {
+                if (this->current_role == PRIMARY) {
+                    registerBackup(client_addr);
+                }
+                break;
+            }
+            case ADD_CLIENT_UPDATE: {
+                if (this->current_role == BACKUP) {
+                    handleClientUpdate(received_packet);
+                }
+                break;
+            }
+            case STATE_UPDATE: {
+                if (this->current_role == BACKUP) {
+                    handleStateUpdate(received_packet);
+                }
+                break;
+            }
+            case ADD_HISTORY_ENTRY: {
+                if (this->current_role == BACKUP) {
+                    handleHistoryEntry(received_packet);
+                }
+                break;
+            }
+            case HEARTBEAT: {
+                if (this->current_role == BACKUP) {
+                    this->primary_alive = true;
+                    std::lock_guard<std::mutex> lock(primary_mutex);
+                    this->primary_alive = true;
+                    primary_cv.notify_one();
+                }
+                break;
+            }
+            case SERVER_DISCOVERY: {
+                if (this->current_role == PRIMARY) {
+                    Packet response;
+                    response.type = htons(DISCOVERY_ACK);
+                    server_socket.sendPacket(response, client_addr);
+                }
                 break;
             }
             default:
@@ -111,6 +186,11 @@ bool Server::wasClientAdded(const std::string& client_ip) {
         clients.push_back(newClient);
         
         this->total_balance += newClient.getBalance();
+
+        if (this->current_role == PRIMARY) {
+            propagateClientAddition(newClient);
+        }
+
         return true;
     }
     std::cout << "Cliente " << client_ip << " já está registado." << std::endl;
@@ -162,8 +242,13 @@ void Server::updateAndLogTransaction(const std::string& source_ip, const std::st
 
     Transaction new_transaction;
     new_transaction.id = this->num_transactions;
-    new_transaction.source_ip = source_ip;
-    new_transaction.dest_ip = dest_ip;
+
+    strncpy(new_transaction.source_ip, source_ip.c_str(), INET_ADDRSTRLEN);
+    new_transaction.source_ip[INET_ADDRSTRLEN - 1] = '\0';
+
+    strncpy(new_transaction.dest_ip, dest_ip.c_str(), INET_ADDRSTRLEN);
+    new_transaction.dest_ip[INET_ADDRSTRLEN - 1] = '\0';
+
     new_transaction.value = value;
     new_transaction.client_seqn = seqn;
     this->transaction_history.push_back(new_transaction);
@@ -212,6 +297,15 @@ std::tuple<TransactionStatus, float, int> Server::processTransaction(const std::
     std::pair<TransactionStatus, float> transaction_result = handleTransactionLogic(source_ip, dest_ip, value, seqn);
     TransactionStatus status = transaction_result.first;
     float balance = transaction_result.second;
+
+    if (status == TransactionStatus::SUCCESS && this->current_role == PRIMARY) {
+        Transaction new_tx = this->transaction_history.back();
+
+        auto source_it = findClient(source_ip);
+        auto dest_it = findClient(dest_ip);
+        
+        propagateTransaction(new_tx, *source_it, *dest_it);
+    }
     
     bool should_notify = (status == TransactionStatus::SUCCESS || 
                           status == TransactionStatus::ERROR_DUPLICATE_REQUEST || 
@@ -259,4 +353,234 @@ void Server::writer_unlock() {
     } else {
         reader_cv.notify_all();
     }
+}
+
+void Server::propagateClientAddition(const ClientDTO& new_client) {
+    Packet packet;
+    packet.type = htons(ADD_CLIENT_UPDATE);
+
+    strncpy(packet.data.client_update.ip, 
+            new_client.getAddress().c_str(), 
+            INET_ADDRSTRLEN);
+            
+    packet.data.client_update.ip[INET_ADDRSTRLEN - 1] = '\0';
+    
+    packet.data.client_update.balance = new_client.getBalance();
+    packet.data.client_update.last_request = new_client.getLastRequest();
+
+    for (const auto& backup_addr : backup_servers) {
+        server_socket.sendPacket(packet, backup_addr);
+    }
+}
+
+void Server::propagateTransaction(const Transaction& new_tx, 
+                                  const ClientDTO& source_client, 
+                                  const ClientDTO& dest_client) 
+{
+    Packet packet;
+    packet.type = htons(STATE_UPDATE);
+
+    packet.data.state_update.transaction = new_tx;
+
+    strncpy(packet.data.state_update.source_ip, 
+            source_client.getAddress().c_str(), 
+            INET_ADDRSTRLEN);
+    packet.data.state_update.source_ip[INET_ADDRSTRLEN - 1] = '\0';
+    packet.data.state_update.source_balance = source_client.getBalance();
+
+    strncpy(packet.data.state_update.dest_ip, 
+            dest_client.getAddress().c_str(), 
+            INET_ADDRSTRLEN);
+    packet.data.state_update.dest_ip[INET_ADDRSTRLEN - 1] = '\0';
+    packet.data.state_update.dest_balance = dest_client.getBalance();
+
+    for (const auto& backup_addr : backup_servers) {
+        server_socket.sendPacket(packet, backup_addr);
+    }
+}
+
+void Server::handleStateUpdate(const Packet& packet) {
+    const StateUpdateData& data = packet.data.state_update;
+    
+    Transaction tx = data.transaction;
+    std::string source_ip = data.source_ip;
+    float source_balance = data.source_balance;
+    std::string dest_ip = data.dest_ip;
+    float dest_balance = data.dest_balance;
+
+    writer_lock();
+
+    auto source_it = findClient(source_ip);
+    if (source_it == clients.end()) {
+        clients.emplace_back(source_ip);
+        source_it = findClient(source_ip);
+    }
+
+    auto dest_it = findClient(dest_ip);
+    if (dest_it == clients.end()) {
+        clients.emplace_back(dest_ip);
+        dest_it = findClient(dest_ip);
+    }
+
+    source_it->setBalance(source_balance);
+    dest_it->setBalance(dest_balance);
+    
+    source_it->setLastRequest(tx.client_seqn);
+
+    this->transaction_history.push_back(tx);
+    this->num_transactions++;
+    this->total_transferred += tx.value;
+
+    last_log_info.type = LogType::SUCCESS;
+    last_log_info.transaction_id = tx.id;
+    last_log_info.value = tx.value;
+    last_log_info.source_ip = source_ip;
+    last_log_info.dest_ip = dest_ip;
+
+    writer_unlock();
+
+    interface.notify();
+}
+
+void Server::handleClientUpdate(const Packet& packet) {
+    
+    std::string ip(packet.data.client_update.ip);
+    float balance = packet.data.client_update.balance;
+    int last_request = packet.data.client_update.last_request;
+    
+    writer_lock();
+    
+    auto it = findClient(ip);
+    if (it == clients.end()) {
+        ClientDTO new_client(ip);
+        
+        new_client.setBalance(balance); 
+        new_client.setLastRequest(last_request);
+        
+        clients.push_back(new_client);
+        
+        this->total_balance += balance; 
+        
+        writer_unlock();
+        interface.notify();
+    } else {
+        writer_unlock();
+    }
+}
+
+void Server::handleHistoryEntry(const Packet& packet) {
+    writer_lock();
+    this->transaction_history.push_back(packet.data.history_entry);
+    this->num_transactions++; //
+    this->total_transferred += packet.data.history_entry.value; //
+    
+    writer_unlock();
+    
+    interface.notify();
+}
+
+void Server::registerBackup(const struct sockaddr_in& backup_addr) {
+    
+    std::cout << "[REPLICAÇÃO] Novo backup. Iniciando sincronização..." << std::endl;
+
+    std::vector<ClientDTO> client_snapshot;
+    std::vector<Transaction> history_snapshot;
+
+    writer_lock();
+    client_snapshot = this->clients;
+    history_snapshot = this->transaction_history;
+    
+    this->backup_servers.push_back(backup_addr);
+    writer_unlock();
+
+    for (const auto& client : client_snapshot) {
+        Packet packet{};
+        packet.type = htons(ADD_CLIENT_UPDATE);
+
+        strncpy(packet.data.client_update.ip, 
+                client.getAddress().c_str(), 
+                INET_ADDRSTRLEN);
+        packet.data.client_update.ip[INET_ADDRSTRLEN - 1] = '\0';
+        packet.data.client_update.balance = client.getBalance();
+        packet.data.client_update.last_request = client.getLastRequest();
+
+        server_socket.sendPacket(packet, backup_addr);
+    }
+
+    for (const auto& tx : history_snapshot) {
+        Packet packet{};
+        packet.type = htons(ADD_HISTORY_ENTRY);
+        
+        packet.data.history_entry = tx; 
+
+        server_socket.sendPacket(packet, backup_addr);
+    }
+
+    std::cout << "[REPLICAÇÃO] Sincronização do backup concluída." << std::endl;
+}
+
+void Server::startHeartbeatSender() {
+    std::thread([this]() {
+        while (this->current_role == PRIMARY) {
+            Packet packet{};
+            packet.type = htons(HEARTBEAT);
+
+            reader_lock();
+            for (const auto& backup_addr : this->backup_servers) {
+                server_socket.sendPacket(packet, backup_addr);
+            }
+            reader_unlock();
+
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    }).detach();
+}
+
+void Server::startHeartbeatMonitor() {
+    std::thread([this]() {
+        while (this->current_role == BACKUP) {
+            std::unique_lock<std::mutex> lock(primary_mutex);
+            primary_alive = false;
+
+            if (primary_cv.wait_for(lock, std::chrono::seconds(5), 
+                                    [this]{ return primary_alive; })) {
+            } else {
+                std::cout << "[REPLICAÇÃO] Timeout! O servidor primário falhou." << std::endl;
+                promoteToPrimary();
+                break;
+            }
+        }
+    }).detach();
+}
+
+void Server::promoteToPrimary() {
+    writer_lock();
+    if (this->current_role == BACKUP) {
+        this->current_role = PRIMARY;
+        std::cout << "[REPLICAÇÃO] Promovido a NOVO SERVIDOR PRIMÁRIO." << std::endl;
+        
+        this->backup_servers.clear();
+        
+        writer_unlock();
+
+        startHeartbeatSender();
+
+        announceNewPrimary();
+    } else {
+        writer_unlock();
+    }
+}
+
+void Server::announceNewPrimary() {
+    Packet packet{};
+    packet.type = htons(NEW_PRIMARY_ANNOUNCEMENT);
+
+    struct sockaddr_in broadcast_addr;
+    memset(&broadcast_addr, 0, sizeof(broadcast_addr));
+    broadcast_addr.sin_family = AF_INET;
+    broadcast_addr.sin_port = htons(this->server_socket.getPort());
+    broadcast_addr.sin_addr.s_addr = inet_addr(BROADCAST_ADDR);
+
+    server_socket.sendPacket(packet, broadcast_addr);
+    std::cout << "[REPLICAÇÃO] A anunciar novo primário à rede..." << std::endl;
 }

@@ -2,7 +2,7 @@
 
 # --- Configurações do Teste de Estresse ---
 # Quantidade de clientes que serão iniciados em paralelo.
-NUM_CLIENTS=10
+NUM_CLIENTS=5
 # Quantidade de transações que cada cliente tentará realizar.
 NUM_TRANSACTIONS_PER_CLIENT=10
 # Nome da sua imagem Docker.

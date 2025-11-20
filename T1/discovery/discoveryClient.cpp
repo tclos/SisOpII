@@ -9,8 +9,6 @@
 #include <unistd.h>
 #include <stdexcept>
 
-#define BROADCAST_ADDR "255.255.255.255"
-
 std::string run_discovery_service_client(int server_port) {
     struct sockaddr_in broadcast_addr, server_addr;
     Packet discovery_packet, response_packet;
