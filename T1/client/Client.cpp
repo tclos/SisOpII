@@ -10,10 +10,11 @@
 #define MAX_RETRIES 5
 
 Client::Client(int port) //Inicializa o cliente e define o ID da requisição como 1
-    : port(port), sequence_number(1), client_socket(port) {
+    : port(port), sequence_number(1), client_socket(0) {
     this->server_address = "";
     memset(&server_sock_addr, 0, sizeof(server_sock_addr));
 
+    this->running = true;
     announcement_thread = std::thread(&Client::listenForAnnouncements, this);
 }
 
@@ -129,7 +130,7 @@ void Client::listenForAnnouncements() {
                 std::lock_guard<std::mutex> lock(server_mutex);
                 
                 if (new_ip != this->server_address) {
-                    std::cout << "\nNovo Servidor Primário anunciado: " << new_ip << std::endl;
+                    std::cout << "Novo Servidor Primário anunciado: " << new_ip << std::endl;
                     
                     this->server_address = new_ip;
                     
