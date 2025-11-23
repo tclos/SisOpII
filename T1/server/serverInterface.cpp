@@ -61,7 +61,7 @@ void ServerInterface::logRequisitionMessage(const Transaction& transaction) {
     std::cout 
         << getCurrentFormattedTime() 
         << " client " << transaction.source_ip
-        << " id req " << transaction.id
+        << " id req " << transaction.client_seqn
         << " dest " << transaction.dest_ip
         << " value " << transaction.value
         << " num transactions " << server.getNumTransactions()

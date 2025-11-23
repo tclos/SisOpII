@@ -52,7 +52,9 @@ enum PacketType {
     STATE_UPDATE = 8,
     STATE_UPDATE_ACK = 9,
     ADD_HISTORY_ENTRY = 10,
-    SERVER_DISCOVERY = 11
+    SERVER_DISCOVERY = 11,
+    ELECTION = 12,
+    ELECTION_ANSWER = 13
 };
 
 struct ClientUpdateData {

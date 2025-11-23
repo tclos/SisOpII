@@ -9,6 +9,7 @@
 #include "ServerUDP.h"
 #include "serverInterface.h"
 #include "utils.h"
+#include <atomic>
 
 class Server {
     private:
@@ -34,6 +35,10 @@ class Server {
         std::mutex primary_mutex;
         std::condition_variable primary_cv;
 
+        uint32_t server_id;
+        bool election_in_progress;
+        std::atomic<bool> election_lost{false};
+
         LogInfo last_log_info;
         
         bool wasClientAdded(const std::string& client_ip);
@@ -56,6 +61,9 @@ class Server {
         void startHeartbeatMonitor();
         void promoteToPrimary();
         void announceNewPrimary();
+
+        void startElection();
+        void handleElectionMsg(const Packet& packet, const struct sockaddr_in& sender_addr);
     
     public:
         Server(int port);

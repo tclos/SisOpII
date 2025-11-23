@@ -17,7 +17,7 @@ public:
     void setUpServerAddress();
     bool bindSocket();
     void configureBroadcast();
-    int receivePacket(Packet& packet, struct sockaddr_in& sender_addr);
+    int receivePacket(Packet& packet, struct sockaddr_in& sender_addr, bool quiet=false);
     bool sendPacket(const Packet& packet, const struct sockaddr_in& dest_addr);
     bool sendMessage(const std::string& message, const struct sockaddr_in& dest_addr);
     void setReceiveTimeout(int seconds, int microseconds);

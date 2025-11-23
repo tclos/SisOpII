@@ -48,7 +48,7 @@ std::string run_discovery_service_server(ServerUDP& server_socket, int port) {
             break;
         }
 
-        int n = server_socket.receivePacket(response_packet, sender_addr);
+        int n = server_socket.receivePacket(response_packet, sender_addr, true);
         
         if (n > 0) {
             if (ntohs(response_packet.type) == DISCOVERY_ACK) {

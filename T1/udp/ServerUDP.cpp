@@ -44,11 +44,14 @@ bool ServerUDP::bindSocket() {
     return true;
 }
 
-int ServerUDP::receivePacket(Packet& packet, struct sockaddr_in& sender_addr) {
+int ServerUDP::receivePacket(Packet& packet, struct sockaddr_in& sender_addr, bool quiet) {
     socklen_t len = sizeof(sender_addr);
     int n = recvfrom(sockfd, &packet, sizeof(packet), 0, (struct sockaddr *)&sender_addr, &len);
     if (n < 0) {
-        std::cerr << "Erro ao receber dados" << std::endl;
+        if (quiet == false ) {
+            std::cerr << "Erro ao receber dados" << std::endl;
+        }
+        
     }
     return n;
 }
