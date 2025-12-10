@@ -14,7 +14,9 @@ SERVER_OBJS = \
     $(OBJDIR)/discovery/discoveryServer.o \
     $(OBJDIR)/udp/ServerUDP.o \
     $(OBJDIR)/utils.o \
-    $(OBJDIR)/transactions/transactionServer.o
+    $(OBJDIR)/transactions/transactionServer.o \
+    $(OBJDIR)/server/ElectionManager.o \
+    $(OBJDIR)/server/ReplicationManager.o
 
 CLIENT_OBJS = \
     $(OBJDIR)/client/main.o \

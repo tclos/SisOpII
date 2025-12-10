@@ -5,10 +5,13 @@
 #include <string>
 #include <mutex>
 #include <condition_variable>
+#include <atomic>
 #include "ClientDTO.h"
 #include "ServerUDP.h"
 #include "serverInterface.h"
 #include "utils.h"
+#include "ElectionManager.h"
+#include "ReplicationManager.h"
 
 class Server {
     private:
@@ -16,6 +19,10 @@ class Server {
         int total_transferred;
         int total_balance;
         ServerUDP server_socket;
+        
+        ElectionManager electionManager;
+        ReplicationManager replicationManager;
+
         std::vector<ClientDTO> clients;
         std::vector<Transaction> transaction_history;
         ServerInterface interface;
@@ -27,6 +34,10 @@ class Server {
         bool writer_active;
         int writers_waiting;
 
+        ServerRole current_role;
+        struct sockaddr_in primary_server_addr;
+        uint32_t server_id;
+
         LogInfo last_log_info;
         
         bool wasClientAdded(const std::string& client_ip);
@@ -36,6 +47,20 @@ class Server {
         void updateAndLogTransaction(const std::string& source_ip, const std::string& dest_ip, int value, int seqn);
         void setupDuplicateRequestLog(const std::string& source_ip, const std::string& dest_ip, int value, int seqn);
         std::pair<TransactionStatus, float> handleTransactionLogic(const std::string& source_ip, const std::string& dest_ip, int value, int seqn);
+
+        void registerBackup(const struct sockaddr_in& backup_addr);
+        void propagateClientAddition(const ClientDTO& new_client);
+        void propagateTransaction(const Transaction& new_tx, 
+                                  const ClientDTO& source_client, 
+                                  const ClientDTO& dest_client);
+                                  
+        void handleClientUpdate(const Packet& packet);
+        void handleStateUpdate(const Packet& packet);
+        void handleHistoryEntry(const Packet& packet);
+        
+        void promoteToPrimary();
+        void demoteToBackup(uint32_t new_id, struct sockaddr_in new_addr);
+        void announceNewPrimary();
     
     public:
         Server(int port);
@@ -45,6 +70,7 @@ class Server {
         int getTotalBalance() const;
         LogInfo getLastLogInfo() const;
         Transaction getLastTransaction() const;
+        ServerRole getRole() const;
 
         void addClient(const std::string& client_ip);
         void printClients() const;

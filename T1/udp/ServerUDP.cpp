@@ -5,6 +5,10 @@
 
 ServerUDP::ServerUDP(int port) : sockfd(-1), port(port) {}
 
+int ServerUDP::getPort() {
+    return this->port;
+}
+
 bool ServerUDP::createSocket() {
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     int broadcastEnable = 1;
@@ -40,11 +44,14 @@ bool ServerUDP::bindSocket() {
     return true;
 }
 
-int ServerUDP::receivePacket(Packet& packet, struct sockaddr_in& sender_addr) {
+int ServerUDP::receivePacket(Packet& packet, struct sockaddr_in& sender_addr, bool quiet) {
     socklen_t len = sizeof(sender_addr);
     int n = recvfrom(sockfd, &packet, sizeof(packet), 0, (struct sockaddr *)&sender_addr, &len);
     if (n < 0) {
-        std::cerr << "Erro ao receber dados" << std::endl;
+        if (quiet == false ) {
+            std::cerr << "Erro ao receber dados" << std::endl;
+        }
+        
     }
     return n;
 }
@@ -63,6 +70,15 @@ bool ServerUDP::sendMessage(const std::string& message, const struct sockaddr_in
         return false;
     }
     return true;
+}
+
+void ServerUDP::setReceiveTimeout(int seconds, int microseconds) {
+    struct timeval timeout;
+    timeout.tv_sec = seconds;
+    timeout.tv_usec = microseconds;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+        throw std::runtime_error("Erro ao configurar timeout de receção.");
+    }
 }
 
 void ServerUDP::closeSocket() {
