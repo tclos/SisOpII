@@ -15,44 +15,51 @@ Server::Server(int port)
     total_transferred(0), 
     total_balance(0),
     server_socket(port),
+    electionManager(0, server_socket),
+    replicationManager(server_socket),
     clients(),
     transaction_history(),   
     interface(*this),
     readers_count(0),
     writer_active(false),
-    writers_waiting(0),
-    election_in_progress(false) 
+    writers_waiting(0)
     {
         this->server_id = 0;
         struct ifaddrs *interfaces = nullptr;
         struct ifaddrs *temp_addr = nullptr;
         
         if (getifaddrs(&interfaces) == 0) {
-            temp_addr = interfaces;
-            while(temp_addr != NULL) {
-                if(temp_addr->ifa_addr && temp_addr->ifa_addr->sa_family == AF_INET) {
-                    struct sockaddr_in* s_addr = (struct sockaddr_in*) temp_addr->ifa_addr;
-                    uint32_t ip_val = ntohl(s_addr->sin_addr.s_addr);
-                    
-                    if ((ip_val >> 24) != 127) { 
-                        this->server_id = ip_val;
-                        
-                        char ipStr[INET_ADDRSTRLEN];
-                        inet_ntop(AF_INET, &(s_addr->sin_addr), ipStr, INET_ADDRSTRLEN);
-                        std::cout << "[SYSTEM] Server ID definido via IP: " << ipStr 
-                                << " (Valor Inteiro: " << this->server_id << ")" << std::endl;
-                        
-                        break;
-                    }
+        temp_addr = interfaces;
+        while(temp_addr != NULL) {
+            if(temp_addr->ifa_addr && temp_addr->ifa_addr->sa_family == AF_INET) {
+                struct sockaddr_in* s_addr = (struct sockaddr_in*) temp_addr->ifa_addr;
+                uint32_t ip_val = ntohl(s_addr->sin_addr.s_addr);
+                
+                if ((ip_val >> 24) != 127) { 
+                    this->server_id = ip_val;
+                    char ipStr[INET_ADDRSTRLEN];
+                    inet_ntop(AF_INET, &(s_addr->sin_addr), ipStr, INET_ADDRSTRLEN);
+                    std::cout << "[SYSTEM] Server ID definido via IP: " << ipStr 
+                            << " (Valor Inteiro: " << this->server_id << ")" << std::endl;
+                    break;
                 }
-                temp_addr = temp_addr->ifa_next;
             }
+            temp_addr = temp_addr->ifa_next;
         }
+    }
         freeifaddrs(interfaces);
 
         if (this->server_id == 0) {
             std::cerr << "[ERRO] Não foi possível determinar o IP da rede. ID definido como 0." << std::endl;
         }
+
+        electionManager.setId(this->server_id);
+    
+        electionManager.setCallbacks(
+            [this]() { this->promoteToPrimary(); },
+            [this](uint32_t id, struct sockaddr_in addr) { this->demoteToBackup(id, addr); },
+            [this]() { return this->current_role == PRIMARY; }
+        );
     }
 
 int Server::getNumTransactions() const {
@@ -109,13 +116,17 @@ void Server::init(int port) {
         reg_packet.type = htons(REGISTER_BACKUP);
         server_socket.sendPacket(reg_packet, primary_server_addr);
 
-        startHeartbeatMonitor();
+        replicationManager.setPrimaryAddress(primary_server_addr);
+        replicationManager.startHeartbeatMonitor([this](){
+            std::cout << "[SERVER] Falha do primário detectada. Iniciando eleição." << std::endl;
+            this->electionManager.startElection();
+        });
 
     } else {
-        this->current_role = PRIMARY;
         std::cout << "Nenhum primário encontrado. Assumindo papel de PRIMARY." << std::endl;
-        
-        startHeartbeatSender();
+        this->current_role = PRIMARY;
+        this->replicationManager.startHeartbeatSender();
+        announceNewPrimary();
     }
 
     interface.start();
@@ -167,10 +178,7 @@ void Server::init(int port) {
             }
             case HEARTBEAT: {
                 if (this->current_role == BACKUP) {
-                    this->primary_alive = true;
-                    std::lock_guard<std::mutex> lock(primary_mutex);
-                    this->primary_alive = true;
-                    primary_cv.notify_one();
+                    replicationManager.notifyHeartbeatReceived();
                 }
                 break;
             }
@@ -183,54 +191,15 @@ void Server::init(int port) {
                 break;
             }
             case NEW_PRIMARY_ANNOUNCEMENT: {
-                uint32_t new_leader_id = ntohl(received_packet.data.req.value);
-                std::cout << "[REPLICAÇÃO] Novo primário anunciado: ID " << new_leader_id << std::endl;
-
-                if (this->election_in_progress) {
-                    this->election_lost = true;
-                }
-
-                if (this->current_role == BACKUP) {
-                    std::lock_guard<std::mutex> lock(primary_mutex);
-                    this->primary_alive = true;
-                    primary_cv.notify_one();
-                }
-                
-                if (new_leader_id != this->server_id) {
-                    this->current_role = BACKUP;
-                    this->backup_servers.clear();
-                    
-                    memset(&primary_server_addr, 0, sizeof(primary_server_addr));
-                    primary_server_addr = client_addr;
-                    
-                    Packet reg;
-                    reg.type = htons(REGISTER_BACKUP);
-                    server_socket.sendPacket(reg, primary_server_addr);
-                }
+                this->electionManager.handleNewPrimaryAnnouncement(received_packet, client_addr);
                 break;
             }
             case ELECTION: {
-                uint32_t sender_id = ntohl(received_packet.data.req.value);
-                
-                if (sender_id > this->server_id) {
-                    if (this->election_in_progress) {
-                        this->election_lost = true;
-                        std::cout << "[ELEIÇÃO] Detectado ID superior (" << sender_id << ")" << std::endl;
-                    }
-                } else {
-                    Packet resp{};
-                    resp.type = htons(ELECTION_ANSWER);
-                    resp.data.req.value = htonl(this->server_id);
-                    server_socket.sendPacket(resp, client_addr);
-                }
+                this->electionManager.handleElectionPacket(received_packet, client_addr);
                 break;
             }
             case ELECTION_ANSWER: {
-                uint32_t sender_id = ntohl(received_packet.data.req.value);
-                if (this->election_in_progress && sender_id > this->server_id) {
-                    this->election_lost = true;
-                    std::cout << "[ELEIÇÃO] Recebi ordem de parada de ID " << sender_id << "." << std::endl;
-                }
+                this->electionManager.handleAnswerPacket(received_packet);
                 break;
             }
             default:
@@ -453,9 +422,7 @@ void Server::propagateClientAddition(const ClientDTO& new_client) {
     packet.data.client_update.balance = new_client.getBalance();
     packet.data.client_update.last_request = new_client.getLastRequest();
 
-    for (const auto& backup_addr : backup_servers) {
-        server_socket.sendPacket(packet, backup_addr);
-    }
+    replicationManager.broadcast(packet);
 }
 
 void Server::propagateTransaction(const Transaction& new_tx, 
@@ -479,9 +446,7 @@ void Server::propagateTransaction(const Transaction& new_tx,
     packet.data.state_update.dest_ip[INET_ADDRSTRLEN - 1] = '\0';
     packet.data.state_update.dest_balance = dest_client.getBalance();
 
-    for (const auto& backup_addr : backup_servers) {
-        server_socket.sendPacket(packet, backup_addr);
-    }
+    replicationManager.broadcast(packet);
 }
 
 void Server::handleStateUpdate(const Packet& packet) {
@@ -565,8 +530,9 @@ void Server::handleHistoryEntry(const Packet& packet) {
 }
 
 void Server::registerBackup(const struct sockaddr_in& backup_addr) {
-    
     std::cout << "[REPLICAÇÃO] Novo backup. Iniciando sincronização" << std::endl;
+
+    replicationManager.addBackup(backup_addr);
 
     std::vector<ClientDTO> client_snapshot;
     std::vector<Transaction> history_snapshot;
@@ -574,92 +540,66 @@ void Server::registerBackup(const struct sockaddr_in& backup_addr) {
     writer_lock();
     client_snapshot = this->clients;
     history_snapshot = this->transaction_history;
-    
-    this->backup_servers.push_back(backup_addr);
     writer_unlock();
 
     for (const auto& client : client_snapshot) {
         Packet packet{};
         packet.type = htons(ADD_CLIENT_UPDATE);
-
-        strncpy(packet.data.client_update.ip, 
-                client.getAddress().c_str(), 
-                INET_ADDRSTRLEN);
+        strncpy(packet.data.client_update.ip, client.getAddress().c_str(), INET_ADDRSTRLEN);
         packet.data.client_update.ip[INET_ADDRSTRLEN - 1] = '\0';
         packet.data.client_update.balance = client.getBalance();
         packet.data.client_update.last_request = client.getLastRequest();
-
         server_socket.sendPacket(packet, backup_addr);
     }
-
     for (const auto& tx : history_snapshot) {
         Packet packet{};
         packet.type = htons(ADD_HISTORY_ENTRY);
-        
         packet.data.history_entry = tx; 
-
         server_socket.sendPacket(packet, backup_addr);
     }
-
     std::cout << "[REPLICAÇÃO] Sincronização do backup concluída." << std::endl;
-}
-
-void Server::startHeartbeatSender() {
-    std::thread([this]() {
-        while (this->current_role == PRIMARY) {
-            Packet packet{};
-            packet.type = htons(HEARTBEAT);
-
-            reader_lock();
-            for (const auto& backup_addr : this->backup_servers) {
-                server_socket.sendPacket(packet, backup_addr);
-            }
-            reader_unlock();
-
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
-    }).detach();
-}
-
-void Server::startHeartbeatMonitor() {
-std::thread([this]() {
-        while (this->current_role == BACKUP) {
-            std::unique_lock<std::mutex> lock(primary_mutex);
-            primary_alive = false;
-
-            if (primary_cv.wait_for(lock, std::chrono::seconds(3), 
-                                    [this]{ return primary_alive; })) {
-            } else {
-                std::cout << "Timeout do Primário! Iniciando Eleição" << std::endl;
-                
-                lock.unlock();
-                
-                startElection();
-                break;
-            }
-        }
-    }).detach();
 }
 
 void Server::promoteToPrimary() {
     writer_lock();
     if (this->current_role == BACKUP) {
+        std::cout << "[SERVER] Promovido a PRIMARY pelo ElectionManager." << std::endl;
         this->current_role = PRIMARY;
         
-        this->backup_servers.clear();
+        replicationManager.stopHeartbeatMonitor();
+        replicationManager.clearBackups();
         
         writer_unlock();
 
-        startHeartbeatSender();
-
+        replicationManager.startHeartbeatSender();
         announceNewPrimary();
     } else {
         writer_unlock();
+        announceNewPrimary();
     }
 }
 
+void Server::demoteToBackup(uint32_t new_id, struct sockaddr_in new_addr) {
+    std::cout << "[SERVER] Aceitando novo líder ID: " << new_id << ". Mudando para BACKUP." << std::endl;
+
+    this->current_role = BACKUP;
+    
+    replicationManager.stopHeartbeatSender();
+    replicationManager.clearBackups();
+    replicationManager.setPrimaryAddress(new_addr);
+    
+    Packet reg;
+    reg.type = htons(REGISTER_BACKUP);
+    server_socket.sendPacket(reg, new_addr);
+    
+    replicationManager.startHeartbeatMonitor([this](){
+        std::cout << "[SERVER] Falha do primário detectada. Iniciando eleição." << std::endl;
+        this->electionManager.startElection();
+    });
+}
+
 void Server::announceNewPrimary() {
-Packet packet{};
+    Packet packet{};
     packet.type = htons(NEW_PRIMARY_ANNOUNCEMENT);
     packet.data.req.value = htonl(this->server_id);
 
@@ -670,79 +610,4 @@ Packet packet{};
     inet_pton(AF_INET, BROADCAST_ADDR, &broadcast_addr.sin_addr);
 
     server_socket.sendPacket(packet, broadcast_addr);
-
-    reader_lock();
-    
-    if (clients.empty()) {
-        std::cout << "[REPLICAÇÃO] Nenhum cliente registado para notificar diretamente." << std::endl;
-    } else {
-        std::cout << "[REPLICAÇÃO] Notificando " << clients.size() << " clientes diretamente:" << std::endl;
-        
-        for (const auto& client : clients) {
-            struct sockaddr_in client_addr;
-            memset(&client_addr, 0, sizeof(client_addr));
-            client_addr.sin_family = AF_INET;
-            client_addr.sin_port = htons(this->server_socket.getPort()); 
-            
-            if (inet_pton(AF_INET, client.getAddress().c_str(), &client_addr.sin_addr) > 0) {
-                server_socket.sendPacket(packet, client_addr);
-                std::cout << "   -> Notificando cliente: " << client.getAddress() << std::endl;
-            }
-        }
-    }
-    
-    reader_unlock();
-}
-
-void Server::startElection() {
-this->election_in_progress = true;
-    this->election_lost = false;
-    
-    Packet packet{};
-    packet.type = htons(ELECTION);
-    packet.data.req.value = htonl(this->server_id);
-
-    struct sockaddr_in broadcast_addr;
-    memset(&broadcast_addr, 0, sizeof(broadcast_addr));
-    broadcast_addr.sin_family = AF_INET;
-    broadcast_addr.sin_port = htons(server_socket.getPort());
-    inet_pton(AF_INET, BROADCAST_ADDR, &broadcast_addr.sin_addr);
-    
-    server_socket.sendPacket(packet, broadcast_addr);
-    std::cout << "[ELEIÇÃO] Iniciando eleição" << std::endl;
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-
-    this->election_in_progress = false;
-
-    if (!this->election_lost) {
-        std::cout << "[ELEIÇÃO] Sou o novo primário" << std::endl;
-        promoteToPrimary();
-    } else {
-        std::cout << "[ELEIÇÃO] Continuo como backup" << std::endl;
-        startHeartbeatMonitor(); 
-    }
-}
-
-void Server::handleElectionMsg(const Packet& packet, const struct sockaddr_in& sender_addr) {
-    uint32_t sender_id = ntohl(packet.data.req.value);
-
-    std::cout << "[ELEIÇÃO] Recebido ID: " << sender_id << " (Meu ID: " << this->server_id << ")" << std::endl;
-
-    if (this->server_id > sender_id) {
-        Packet resp{};
-        resp.type = htons(ELECTION_ANSWER);
-        resp.data.req.value = htonl(this->server_id);
-        
-        server_socket.sendPacket(resp, sender_addr);
-
-        if (this->current_role == PRIMARY) {
-            announceNewPrimary();
-        } 
-        else if (!this->election_in_progress) {
-            std::cout << "[ELEIÇÃO] Sou maior que o desafiante. Iniciando minha candidatura..." << std::endl;
-            std::thread([this](){ startElection(); }).detach();
-        }
-    
-    }
 }

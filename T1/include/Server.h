@@ -5,11 +5,13 @@
 #include <string>
 #include <mutex>
 #include <condition_variable>
+#include <atomic>
 #include "ClientDTO.h"
 #include "ServerUDP.h"
 #include "serverInterface.h"
 #include "utils.h"
-#include <atomic>
+#include "ElectionManager.h"
+#include "ReplicationManager.h"
 
 class Server {
     private:
@@ -17,6 +19,10 @@ class Server {
         int total_transferred;
         int total_balance;
         ServerUDP server_socket;
+        
+        ElectionManager electionManager;
+        ReplicationManager replicationManager;
+
         std::vector<ClientDTO> clients;
         std::vector<Transaction> transaction_history;
         ServerInterface interface;
@@ -29,15 +35,8 @@ class Server {
         int writers_waiting;
 
         ServerRole current_role;
-        std::vector<struct sockaddr_in> backup_servers;
         struct sockaddr_in primary_server_addr;
-        bool primary_alive;
-        std::mutex primary_mutex;
-        std::condition_variable primary_cv;
-
         uint32_t server_id;
-        bool election_in_progress;
-        std::atomic<bool> election_lost{false};
 
         LogInfo last_log_info;
         
@@ -54,16 +53,14 @@ class Server {
         void propagateTransaction(const Transaction& new_tx, 
                                   const ClientDTO& source_client, 
                                   const ClientDTO& dest_client);
+                                  
         void handleClientUpdate(const Packet& packet);
         void handleStateUpdate(const Packet& packet);
         void handleHistoryEntry(const Packet& packet);
-        void startHeartbeatSender();
-        void startHeartbeatMonitor();
+        
         void promoteToPrimary();
+        void demoteToBackup(uint32_t new_id, struct sockaddr_in new_addr);
         void announceNewPrimary();
-
-        void startElection();
-        void handleElectionMsg(const Packet& packet, const struct sockaddr_in& sender_addr);
     
     public:
         Server(int port);
