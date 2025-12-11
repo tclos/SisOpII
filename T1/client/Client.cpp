@@ -27,21 +27,16 @@ std::string Client::getServerAddress() const {
 //chama a função que envia uma mensagem para a rede e espera uma resposta do servidor, 
 //armazena o IP do servidor que respondeu, configura o socker principal do cliente com um timeout
 std::string Client::discoverServer() { 
-    std::string found_ip = run_discovery_service_client(port);
+    this->server_address = run_discovery_service_client(port);
     
     client_socket.createSocket();
     client_socket.setReceiveTimeout(0, TIMEOUT_MS);
 
-    {
-        std::lock_guard<std::mutex> lock(server_mutex);
-        this->server_address = found_ip;
+    server_sock_addr.sin_family = AF_INET;
+    server_sock_addr.sin_port = htons(this->port);
+    inet_pton(AF_INET, this->server_address.c_str(), &server_sock_addr.sin_addr);
 
-        server_sock_addr.sin_family = AF_INET;
-        server_sock_addr.sin_port = htons(this->port);
-        inet_pton(AF_INET, this->server_address.c_str(), &server_sock_addr.sin_addr);
-    }
-
-    return found_ip;
+    return this->server_address;
 }
 
 //entra em um loop whie que tenta no max MAX_RETRIES

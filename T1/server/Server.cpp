@@ -698,9 +698,7 @@ void Server::startElection() {
     if (!this->election_lost) {
         std::cout << "[ELEIÇÃO] Sou o novo primário." << std::endl;
         promoteToPrimary();
-    } else {
-        std::cout << "[ELEIÇÃO] Aguardando anúncio do novo líder." << std::endl;
-        
+    } else {        
         startHeartbeatMonitor(); 
     }
 }
