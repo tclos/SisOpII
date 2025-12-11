@@ -67,12 +67,6 @@ std::pair<bool, AckData> Client::executeRequestWithRetries(const std::string& de
             return {true, response_packet.data.ack};
         } else {
             retries++;
-            if (retries >= 1) {
-                try {
-                    discoverServer();
-                } catch (const std::exception& e) {
-                }
-            }
         }
     }
 
@@ -134,7 +128,6 @@ void Client::listenForAnnouncements() {
                     
                     this->server_address = new_ip;
                     
-                    // Atualiza a estrutura para os próximos envios
                     memset(&server_sock_addr, 0, sizeof(server_sock_addr));
                     server_sock_addr.sin_family = AF_INET;
                     server_sock_addr.sin_port = htons(this->port);

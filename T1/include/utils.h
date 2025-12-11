@@ -6,7 +6,7 @@
 
 #define INITIAL_BALANCE 1000.0f
 #define BROADCAST_ADDR "255.255.255.255"
-#define TIMEOUT_MS 10000 // 10 milissegundos
+#define TIMEOUT_MS 5000 // 5 segundos
 
 enum class LogType {
     NONE,
