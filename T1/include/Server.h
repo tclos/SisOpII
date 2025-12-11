@@ -49,6 +49,8 @@ class Server {
         void setupDuplicateRequestLog(const std::string& source_ip, const std::string& dest_ip, int value, int seqn);
         std::pair<TransactionStatus, float> handleTransactionLogic(const std::string& source_ip, const std::string& dest_ip, int value, int seqn);
 
+        uint32_t getIp();
+
         void registerBackup(const struct sockaddr_in& backup_addr);
         void propagateClientAddition(const ClientDTO& new_client);
         void propagateTransaction(const Transaction& new_tx, 
@@ -57,11 +59,18 @@ class Server {
         void handleClientUpdate(const Packet& packet);
         void handleStateUpdate(const Packet& packet);
         void handleHistoryEntry(const Packet& packet);
+        void handleHeartbeatPacket();
+        void sendDiscoveryAck(const struct sockaddr_in& client_addr);
+        void handleNewPrimaryAnnouncementPacket(const Packet& packet, const struct sockaddr_in& sender_addr);
+        void handleElectionPacket(const Packet& packet, const struct sockaddr_in& sender_addr);
+        void handleElectionAnswerPacket(const Packet& packet);
+
         void startHeartbeatSender();
         void startHeartbeatMonitor();
         void promoteToPrimary();
         void announceNewPrimary();
-
+        void initBackup(const std::string& primary_ip, int port);
+        void initPrimary();
         void startElection();
         void handleElectionMsg(const Packet& packet, const struct sockaddr_in& sender_addr);
     
