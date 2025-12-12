@@ -97,7 +97,13 @@ void ClientInterface::processCommand(const std::string& command) {
                 logError("O último ID processado pelo servidor foi: " + std::to_string(last_req_from_server) + ". A próxima requisição esperada é a de ID: " + std::to_string(last_req_from_server + 1) + ".");
                 break;
             default:
-                logError("Recebida resposta com status desconhecido do servidor.");
+                logError("Não foi possível obter resposta do servidor para a requisição #" + std::to_string(client.getSequenceNumber()));
+                std::cout << "Tentando localizar novo servidor..." << std::endl;
+                try {
+                    client.discoverServer();
+                } catch (const std::exception& e) {
+                    std::cerr << "Falha na redescoberta: " << e.what() << std::endl;
+                }
                 break;
         }
     } else {

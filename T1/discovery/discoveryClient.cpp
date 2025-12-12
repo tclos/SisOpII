@@ -9,13 +9,11 @@
 #include <unistd.h>
 #include <stdexcept>
 
-#define BROADCAST_ADDR "255.255.255.255"
-
 std::string run_discovery_service_client(int server_port) {
     struct sockaddr_in broadcast_addr, server_addr;
     Packet discovery_packet, response_packet;
 
-    ClientUDP client(server_port);
+    ClientUDP client(0);
 
     if (client.setupBroadcast() == false) {
         throw std::runtime_error("Erro ao configurar o socket do cliente para broadcast.");
