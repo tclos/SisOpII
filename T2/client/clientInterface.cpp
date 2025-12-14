@@ -1,0 +1,136 @@
+#include "clientInterface.h"
+#include "Client.h"
+#include "transactions.h"
+#include "utils.h"  // CORREÇÃO: Adicionada
+#include <iostream>
+
+ClientInterface::ClientInterface(Client& c) : client(c) {}
+
+void ClientInterface::start() { //procura o servidor e inicia as duas threads
+    try {
+        std::string server_addr = client.discoverServer();
+        logInitialMessage(server_addr);
+
+        input_thread = std::thread(&ClientInterface::userInputThread, this);
+        communication_thread = std::thread(&ClientInterface::communicationThread, this);
+
+        input_thread.join();
+        communication_thread.join();
+
+    } catch (const std::runtime_error& e) {
+        logError(e.what());
+    }
+}
+
+void ClientInterface::shutdown() {
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex);
+        finished = true;
+    }
+    condition.notify_all();
+}
+
+//thread produtora 
+void ClientInterface::userInputThread() {
+    for (std::string line; std::getline(std::cin, line);) { // lê o que o usuário digitou
+        if (line.empty()) continue;
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex); //tranca a fila, adiciona o comando na fila e avisa pra outra thread que tem um novo item
+            command_queue.push(line);
+        }
+        condition.notify_one(); //notifica thread consumidora
+    }
+    shutdown(); // CTRL+D pressionado - leitura da thread encerra
+}
+
+// thread consumidora - consome comandos da fila
+void ClientInterface::communicationThread() {
+    std::string command;
+    while (tryGetCommandFromQueue(command)) {
+        processCommand(command);
+    }
+}
+
+bool ClientInterface::tryGetCommandFromQueue(std::string& out_command) {
+    std::unique_lock<std::mutex> lock(queue_mutex);
+    condition.wait(lock, [this] { return !command_queue.empty() || finished; });
+
+    if (finished && command_queue.empty()) {
+        return false;
+    }
+
+    out_command = command_queue.front();
+    command_queue.pop();
+    return true;
+}
+
+void ClientInterface::processCommand(const std::string& command) {
+    std::string dest_ip;
+    int value;
+    if (!validateInput(command, dest_ip, value)) {
+        return;
+    }
+
+    auto result = client.executeRequestWithRetries(dest_ip, value);
+
+    if (result.first) {
+        AckData ack_data = result.second;
+        TransactionStatus status = static_cast<TransactionStatus>(ntohl(ack_data.status));
+        uint32_t last_req_from_server = ntohl(ack_data.last_req);
+
+        switch (status) {
+            case TransactionStatus::SUCCESS:
+                logResponse(client.getSequenceNumber(), dest_ip, value, ack_data);
+                client.incrementSequenceNumber();
+                break;
+            case TransactionStatus::ERROR_INSUFFICIENT_FUNDS:
+                logError("Saldo insuficiente para realizar a transação.");
+                break;
+            case TransactionStatus::ERROR_CLIENT_NOT_FOUND:
+                break;
+            case TransactionStatus::ERROR_DUPLICATE_REQUEST:
+                logError("Requisição duplicada (ID " + std::to_string(client.getSequenceNumber()) + "). O servidor já processou esta requisição.");
+                logError("O último ID de requisição processado pelo servidor foi: " + std::to_string(last_req_from_server) + ". Avançando para a próxima.");
+                client.incrementSequenceNumber();
+                break;
+            case TransactionStatus::ERROR_OUT_OF_SEQUENCE:
+                logError("Requisição fora de ordem (ID " + std::to_string(client.getSequenceNumber()) + ").");
+                logError("O último ID processado pelo servidor foi: " + std::to_string(last_req_from_server) + ". A próxima requisição esperada é a de ID: " + std::to_string(last_req_from_server + 1) + ".");
+                break;
+            default:
+                logError("Não foi possível obter resposta do servidor para a requisição #" + std::to_string(client.getSequenceNumber()));
+                std::cout << "Tentando localizar novo servidor..." << std::endl;
+                try {
+                    client.discoverServer();
+                } catch (const std::exception& e) {
+                    std::cerr << "Falha na redescoberta: " << e.what() << std::endl;
+                }
+                break;
+        }
+    } else {
+        logError("Não foi possível obter resposta do servidor para a requisição #" + std::to_string(client.getSequenceNumber()));
+    }
+}
+
+void ClientInterface::logInitialMessage(const std::string& address) {
+    std::cout << getCurrentFormattedTime() << " server addr " << address << std::endl;
+}
+
+void ClientInterface::logResponse(int seqn, const std::string& dest_ip, int value, const AckData& ack) {
+    std::cout << getCurrentFormattedTime()
+              << " server " << client.getServerAddress()
+              << " id_req " << seqn
+              << " dest " << dest_ip
+              << " value " << value
+              << " new_balance " << ack.new_balance
+              << std::endl;
+}
+
+void ClientInterface::logTimeout(int seqn, int retry, int max_retries) {
+    std::cout << "Timeout! Reenviando requisição #" << seqn
+              << " (" << retry << "/" << max_retries << ")" << std::endl;
+}
+
+void ClientInterface::logError(const std::string& message) {
+    std::cerr << "Erro: " << message << std::endl;
+}

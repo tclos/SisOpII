@@ -1,0 +1,7 @@
+/obj/
+/servidor
+/cliente
+*.o
+.vscode/
+.DS_Store
+/stress_test_logs
